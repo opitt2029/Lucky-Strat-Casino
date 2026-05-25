@@ -1,0 +1,91 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: lucky-star-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "${MYSQL_PORT}:3306"
+    volumes:
+      - lucky_mysql_data:/var/lib/mysql
+      - ./database/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - lucky-network
+
+  postgres:
+    image: postgres:16
+    container_name: lucky-star-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - lucky_postgres_data:/var/lib/postgresql/data
+      - ./database/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - lucky-network
+
+  redis:
+    image: redis:7
+    container_name: lucky-star-redis
+    restart: always
+    ports:
+      - "${REDIS_PORT}:6379"
+    networks:
+      - lucky-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: lucky-star-zookeeper
+    restart: always
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    networks:
+      - lucky-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: lucky-star-kafka
+    restart: always
+    depends_on:
+      - zookeeper
+    ports:
+      - "${KAFKA_PORT}:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: lucky-star-zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://lucky-star-kafka:29092,PLAINTEXT_HOST://localhost:${KAFKA_PORT}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - lucky-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: lucky-star-kafka-ui
+    restart: always
+    depends_on:
+      - kafka
+    ports:
+      - "${KAFKA_UI_PORT}:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-lucky-star
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: lucky-star-kafka:29092
+    networks:
+      - lucky-network
+
+volumes:
+  lucky_mysql_data:
+  lucky_postgres_data:
+
+networks:
+  lucky-network:
+    driver: bridge

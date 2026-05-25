@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS system_health_check (
+    id BIGSERIAL PRIMARY KEY,
+    service_name VARCHAR(100) NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
