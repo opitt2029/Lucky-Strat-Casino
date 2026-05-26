@@ -82,6 +82,8 @@
 | 文件 | 說明 |
 |------|------|
 | 📄 [本機環境從零到一教學](docs/ENV_SETUP_GUIDE.md) | 初次加入專案的完整設置教學（推薦從這裡開始） |
+| 🏗️ [系統架構文件](docs/architecture.md) | 服務邊界、DB 分配、Kafka Topics、Port 表、請求流程圖 |
+| 📋 [ADR-001 資料庫分配決策](docs/adr/ADR-001.md) | PostgreSQL（寫）+ MySQL（讀）CQRS 分離的決策過程 |
 | 📄 [專案基底功能說明](docs/PROJECT_BASE_EXPLANATION.md) | 系統底座現況、服務職責說明 |
 | 🤝 [開發者貢獻與分支規範](CONTRIBUTING.md) | PR 流程、分支命名、Code Review 規範 |
 
