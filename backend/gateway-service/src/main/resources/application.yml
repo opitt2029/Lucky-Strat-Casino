@@ -8,8 +8,8 @@ spring:
   # Redis Reactive — JWT 黑名單查詢、限流計數器
   data:
     redis:
-      host: localhost
-      port: 6379
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
       timeout: 2000ms
 
   # Spring Cloud Gateway 路由設定（詳細路由規則待 T-003 補充）
@@ -19,8 +19,7 @@ spring:
       globalcors:
         cors-configurations:
           '[/**]':
-            allowedOrigins:
-              - "http://localhost:5173"
+            allowedOrigins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
             allowedMethods:
               - GET
               - POST
@@ -32,34 +31,42 @@ spring:
       routes:
         # 白名單路徑：免 JWT 驗證（登入/註冊）
         - id: member-auth
-          uri: http://localhost:8081
+          uri: ${MEMBER_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/v1/auth/**
         # 會員 API（需 JWT）
         - id: member-player
-          uri: http://localhost:8081
+          uri: ${MEMBER_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/v1/player/**
         # 錢包 API（需 JWT）
         - id: wallet
-          uri: http://localhost:8082
+          uri: ${WALLET_SERVICE_URL:http://localhost:8082}
           predicates:
             - Path=/api/v1/wallet/**
         # 遊戲 API（需 JWT）
         - id: game
-          uri: http://localhost:8083
+          uri: ${GAME_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/api/v1/game/**
         # 排行榜 API（需 JWT）
         - id: rank
-          uri: http://localhost:8084
+          uri: ${RANK_SERVICE_URL:http://localhost:8084}
           predicates:
             - Path=/api/v1/rank/**
         # 管理介面（需 ADMIN role）
         - id: admin
-          uri: http://localhost:8086
+          uri: ${ADMIN_SERVICE_URL:http://localhost:8086}
           predicates:
             - Path=/admin/**
+
+# JWT 設定 — secret 必須與 member-service 簽發端完全一致
+jwt:
+  secret: ${JWT_SECRET:?JWT_SECRET environment variable is required}
+  # JwtAuthenticationGlobalFilter 跳過驗證的路徑前綴
+  whitelist:
+    - /api/v1/auth/
+    - /actuator/health
 
 management:
   endpoints:
@@ -72,5 +79,5 @@ management:
 
 logging:
   level:
-    com.luckystar.gateway: DEBUG
-    org.springframework.cloud.gateway: INFO
+    com.luckystar.gateway: ${LOG_LEVEL_APP:INFO}
+    org.springframework.cloud.gateway: ${LOG_LEVEL_GATEWAY:INFO}
