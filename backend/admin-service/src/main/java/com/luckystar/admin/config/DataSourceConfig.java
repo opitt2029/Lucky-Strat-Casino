@@ -1,35 +1,103 @@
 package com.luckystar.admin.config;
 
+import jakarta.persistence.EntityManagerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.jdbc.DataSourceBuilder;
+import org.springframework.boot.orm.jpa.EntityManagerFactoryBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.orm.jpa.JpaTransactionManager;
+import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
- * 雙資料庫設定（ADR-001）
+ * ADR-001 雙資料庫設定。
  *
- * - @Primary DataSource（MySQL）由 spring.datasource 自動配置，JPA 使用此庫
- *   用於讀取 members、friendships 等各服務共用資料
- * - postgresDataSource（PostgreSQL）透過 @Qualifier("postgresDataSource") 注入，
- *   專用於寫入 admin_alerts 資料表
+ * 讀端（@Primary）：MySQL — 讀取 members、friendships、daily_checkins 等跨服務查詢資料
+ *   - package: com.luckystar.admin.mysql.{entity,repository}
  *
- * 使用方式：
- *   @Autowired
- *   @Qualifier("postgresDataSource")
- *   private DataSource postgresDataSource;
+ * 寫端：PostgreSQL — admin_alerts、admin_action_logs 寫入
+ *   - package: com.luckystar.admin.postgres.{entity,repository}
+ *   - 透過 @Qualifier("postgresEntityManagerFactory") / "postgresTransactionManager" 注入
  */
 @Configuration
+@EnableJpaRepositories(
+        basePackages = "com.luckystar.admin.mysql.repository",
+        entityManagerFactoryRef = "mysqlEntityManagerFactory",
+        transactionManagerRef = "mysqlTransactionManager"
+)
 public class DataSourceConfig {
 
-    /**
-     * PostgreSQL 寫庫 DataSource（admin_alerts）
-     * 對應 application.yml 的 spring.datasource-postgres 區塊
-     */
+    // ============================================================
+    // MySQL — 讀端（Primary）
+    // ============================================================
+
+    @Primary
+    @Bean("mysqlDataSource")
+    @ConfigurationProperties(prefix = "spring.datasource")
+    public DataSource mysqlDataSource() {
+        return DataSourceBuilder.create().build();
+    }
+
+    @Primary
+    @Bean("mysqlEntityManagerFactory")
+    public LocalContainerEntityManagerFactoryBean mysqlEntityManagerFactory(
+            EntityManagerFactoryBuilder builder,
+            @Qualifier("mysqlDataSource") DataSource dataSource) {
+        Map<String, Object> props = new HashMap<>();
+        props.put("hibernate.dialect", "org.hibernate.dialect.MySQLDialect");
+        // Admin 僅讀現成 schema，固定 validate
+        props.put("hibernate.hbm2ddl.auto", "validate");
+        return builder
+                .dataSource(dataSource)
+                .packages("com.luckystar.admin.mysql.entity")
+                .persistenceUnit("mysql")
+                .properties(props)
+                .build();
+    }
+
+    @Primary
+    @Bean("mysqlTransactionManager")
+    public PlatformTransactionManager mysqlTransactionManager(
+            @Qualifier("mysqlEntityManagerFactory") EntityManagerFactory emf) {
+        return new JpaTransactionManager(emf);
+    }
+
+    // ============================================================
+    // PostgreSQL — 寫端（admin_alerts）
+    // ============================================================
+
     @Bean("postgresDataSource")
     @ConfigurationProperties(prefix = "spring.datasource-postgres")
     public DataSource postgresDataSource() {
         return DataSourceBuilder.create().build();
+    }
+
+    @Bean("postgresEntityManagerFactory")
+    public LocalContainerEntityManagerFactoryBean postgresEntityManagerFactory(
+            EntityManagerFactoryBuilder builder,
+            @Qualifier("postgresDataSource") DataSource dataSource) {
+        Map<String, Object> props = new HashMap<>();
+        props.put("hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect");
+        props.put("hibernate.hbm2ddl.auto", System.getenv().getOrDefault("JPA_DDL_AUTO", "validate"));
+        return builder
+                .dataSource(dataSource)
+                .packages("com.luckystar.admin.postgres.entity")
+                .persistenceUnit("postgres")
+                .properties(props)
+                .build();
+    }
+
+    @Bean("postgresTransactionManager")
+    public PlatformTransactionManager postgresTransactionManager(
+            @Qualifier("postgresEntityManagerFactory") EntityManagerFactory emf) {
+        return new JpaTransactionManager(emf);
     }
 }

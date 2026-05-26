@@ -15,31 +15,24 @@ spring:
   # PostgreSQL — 帳務寫庫（@Primary DataSource）
   # wallets、wallet_transactions（寫端）
   datasource:
-    url: jdbc:postgresql://localhost:5433/lucky_star_casino
-    username: lucky_user
-    password: lucky_password
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5433}/${POSTGRES_DB:lucky_star_casino}
+    username: ${POSTGRES_USER:lucky_user}
+    password: ${POSTGRES_PASSWORD:lucky_password}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 15
       minimum-idle: 3
       connection-timeout: 30000
 
-  jpa:
-    hibernate:
-      # 開發期間用 update 自動建表；正式環境改 validate
-      ddl-auto: update
-    show-sql: false
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
-        format_sql: false
+  # 注意：spring.jpa.* 在此服務無效 —— EntityManagerFactory 由 DataSourceConfig.java
+  # 手動建立（雙 EMF 不能用 Spring Boot 預設自動配置）。
+  # JPA_DDL_AUTO 環境變數會被讀進 postgresEntityManagerFactory，預設 validate。
 
-  # MySQL — 讀庫設定（需在 DataSourceConfig.java 中以 @Qualifier("mysqlDataSource") 定義）
-  # wallet_transactions（讀端，CQRS 讀端）、gift_logs
+  # MySQL — CQRS 讀端 DataSource（DataSourceConfig.mysqlDataSource 綁定此前綴）
   datasource-mysql:
-    url: jdbc:mysql://localhost:3307/lucky_star_casino?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Taipei&characterEncoding=UTF-8
-    username: lucky_user
-    password: lucky_password
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3307}/${MYSQL_DATABASE:lucky_star_casino}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Taipei&characterEncoding=UTF-8
+    username: ${MYSQL_USER:lucky_user}
+    password: ${MYSQL_PASSWORD:lucky_password}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       maximum-pool-size: 10
@@ -49,13 +42,13 @@ spring:
   # Redis — 贈幣當日累計、破產補助當日狀態（TTL 到午夜）
   data:
     redis:
-      host: localhost
-      port: 6379
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
       timeout: 2000ms
 
   # Kafka
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -78,5 +71,5 @@ management:
 
 logging:
   level:
-    com.luckystar.wallet: DEBUG
-    org.hibernate.SQL: OFF
+    com.luckystar.wallet: ${LOG_LEVEL_APP:INFO}
+    org.hibernate.SQL: ${LOG_LEVEL_SQL:OFF}

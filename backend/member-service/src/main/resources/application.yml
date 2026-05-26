@@ -7,9 +7,9 @@ spring:
 
   # MySQL 資料庫（ADR-001：members、friendships、daily_checkins、task_definitions、player_tasks）
   datasource:
-    url: jdbc:mysql://localhost:3307/lucky_star_casino?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Taipei&characterEncoding=UTF-8
-    username: lucky_user
-    password: lucky_password
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3307}/${MYSQL_DATABASE:lucky_star_casino}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Taipei&characterEncoding=UTF-8
+    username: ${MYSQL_USER:lucky_user}
+    password: ${MYSQL_PASSWORD:lucky_password}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       maximum-pool-size: 10
@@ -18,8 +18,8 @@ spring:
 
   jpa:
     hibernate:
-      # 開發期間用 update 自動建表；正式環境改 validate
-      ddl-auto: update
+      # Schema 由 database/mysql/init.sql 管理；預設 validate，本機開發可在 .env 設 JPA_DDL_AUTO=update
+      ddl-auto: ${JPA_DDL_AUTO:validate}
     show-sql: false
     properties:
       hibernate:
@@ -29,13 +29,13 @@ spring:
   # Redis — Refresh Token (TTL 7天)、JWT 黑名單
   data:
     redis:
-      host: localhost
-      port: 6379
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
       timeout: 2000ms
 
   # Kafka
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -52,11 +52,11 @@ spring:
     user:
       name: disabled
 
-# JWT 設定（正式環境請用環境變數覆寫 secret）
+# JWT 設定 — secret 必須由環境變數提供，不在 yml 留預設值
 jwt:
-  secret: lucky-star-casino-jwt-secret-key-dev-only-change-in-production
-  access-token-expiry-ms: 900000        # 15 分鐘
-  refresh-token-expiry-ms: 604800000    # 7 天
+  secret: ${JWT_SECRET:?JWT_SECRET environment variable is required}
+  access-token-expiry-ms: ${JWT_ACCESS_TOKEN_EXPIRY_MS:900000}     # 15 分鐘
+  refresh-token-expiry-ms: ${JWT_REFRESH_TOKEN_EXPIRY_MS:604800000} # 7 天
 
 management:
   endpoints:
@@ -69,6 +69,6 @@ management:
 
 logging:
   level:
-    com.luckystar.member: DEBUG
-    org.springframework.security: INFO
-    org.hibernate.SQL: OFF
+    com.luckystar.member: ${LOG_LEVEL_APP:INFO}
+    org.springframework.security: ${LOG_LEVEL_SECURITY:INFO}
+    org.hibernate.SQL: ${LOG_LEVEL_SQL:OFF}
