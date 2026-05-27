@@ -10,25 +10,41 @@ CREATE DATABASE IF NOT EXISTS lucky_star_casino
 
 USE lucky_star_casino;
 
--- -------------------------------------------------------
--- members：玩家帳號主表
--- 儲存會員基本資料，為 Member Service 的唯一寫入端
--- （此表並非從 PostgreSQL 同步，本身即為寫入來源）
--- -------------------------------------------------------
+-- ============================================================
+-- 健康檢查表（基礎建設用，各 Service 可寫入自身狀態）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS system_health_check (
+    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+    service_name VARCHAR(100) NOT NULL,
+    status       VARCHAR(50)  NOT NULL,
+    checked_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Member Service — 玩家帳號表
+-- 所屬服務：Member Service（port 8081）
+-- 說明：
+--   · role   — PLAYER（一般玩家）/ ADMIN（後台管理員）
+--   · status — ACTIVE（正常）/ DISABLED（停權）
+--   · avatar — 可為 https:// URL 或 data:image/xxx;base64,... 格式
+--   · password_hash — BCrypt 雜湊值，不儲存明文
+-- ============================================================
 CREATE TABLE IF NOT EXISTS members (
-    id                  BIGINT          NOT NULL AUTO_INCREMENT,
-    username            VARCHAR(50)     NOT NULL,
-    email               VARCHAR(100)    NOT NULL,
-    password_hash       VARCHAR(255)    NOT NULL,
-    nickname            VARCHAR(50),
-    avatar_url          VARCHAR(500),
-    is_active           BOOLEAN         NOT NULL DEFAULT TRUE,
-    is_new_gift_claimed BOOLEAN         NOT NULL DEFAULT FALSE,  -- 是否已領取新手禮包
-    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT pk_members         PRIMARY KEY (id),
-    CONSTRAINT uq_members_username UNIQUE (username),
-    CONSTRAINT uq_members_email    UNIQUE (email)
+    id            BIGINT        AUTO_INCREMENT PRIMARY KEY,
+    username      VARCHAR(50)   NOT NULL COMMENT '登入帳號，唯一',
+    email         VARCHAR(100)  NOT NULL COMMENT '電子信箱，唯一',
+    password_hash VARCHAR(255)  NOT NULL COMMENT 'BCrypt 雜湊密碼',
+    nickname      VARCHAR(50)   NOT NULL COMMENT '顯示暱稱',
+    avatar        TEXT          NULL     COMMENT '頭像：URL 或 Base64 data URI',
+    role          ENUM('PLAYER','ADMIN')    NOT NULL DEFAULT 'PLAYER',
+    status        ENUM('ACTIVE','DISABLED') NOT NULL DEFAULT 'ACTIVE',
+    created_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                         ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uk_members_username (username),
+    UNIQUE KEY uk_members_email    (email),
+    INDEX      idx_members_status  (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -------------------------------------------------------

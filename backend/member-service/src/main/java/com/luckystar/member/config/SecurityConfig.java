@@ -2,69 +2,55 @@ package com.luckystar.member.config;
 
 import com.luckystar.member.security.InternalSecretFilter;
 import com.luckystar.member.security.JwtAuthenticationFilter;
-import com.luckystar.member.security.JwtTokenProvider;
-import com.luckystar.member.service.TokenRedisService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
 @EnableWebSecurity
+@RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final JwtTokenProvider jwtTokenProvider;
-    private final TokenRedisService tokenRedisService;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final InternalSecretFilter internalSecretFilter;
 
-    public SecurityConfig(JwtTokenProvider jwtTokenProvider,
-                          TokenRedisService tokenRedisService,
-                          InternalSecretFilter internalSecretFilter) {
-        this.jwtTokenProvider = jwtTokenProvider;
-        this.tokenRedisService = tokenRedisService;
-        this.internalSecretFilter = internalSecretFilter;
-    }
-
     @Bean
-    public JwtAuthenticationFilter jwtAuthenticationFilter() {
-        return new JwtAuthenticationFilter(jwtTokenProvider, tokenRedisService);
-    }
-
-    @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            .csrf(AbstractHttpConfigurer::disable)
-            .formLogin(AbstractHttpConfigurer::disable)
-            .httpBasic(AbstractHttpConfigurer::disable)
-            .sessionManagement(session ->
-                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-            )
+            .csrf(csrf -> csrf.disable())
+            .sessionManagement(sm ->
+                sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // T-010~T-012 auth endpoints — 公開
                 .requestMatchers("/api/v1/auth/**").permitAll()
-                // 服務間 internal 路由 — 由 InternalSecretFilter 自行驗證，不需要 JWT
                 .requestMatchers("/internal/**").permitAll()
-                // 健康檢查
-                .requestMatchers("/actuator/health").permitAll()
-                // 其他所有請求需認證
+                .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                 .anyRequest().authenticated()
             )
-            // 執行順序：InternalSecretFilter → JwtAuthenticationFilter → UPAF
-            // 先將 JwtAuthenticationFilter 掛在 UPAF 之前，再把 InternalSecretFilter 掛在其之前
-            .addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class)
-            .addFilterBefore(internalSecretFilter, JwtAuthenticationFilter.class);
+            // InternalSecretFilter 先跑，攔截 /internal/** 並驗證 X-Internal-Secret
+            .addFilterBefore(internalSecretFilter, JwtAuthenticationFilter.class)
+            // JwtAuthenticationFilter 解析 Bearer token，驗證後寫入 SecurityContext
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
 
-    // T-010 宣告的 Bean — 不可移動或刪除
     @Bean
-    public BCryptPasswordEncoder passwordEncoder() {
+    public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config)
+            throws Exception {
+        return config.getAuthenticationManager();
     }
 }

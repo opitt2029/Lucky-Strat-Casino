@@ -5,6 +5,105 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [T-014 rebuild] — 2026-05-27 — Player Profile GET & PUT API（全量重建）
+
+### Context
+所有 T-010 ~ T-015 的 source 檔案遺失（僅 `SecurityConfig.java` 存在），
+本次在 `target/classes` .class 檔確認原有結構後，從零重建所有必要類別，
+並完整實作 T-014 規格。
+
+### Added (T-014 核心，新增)
+- `dto/ProfileResponse.java` — `playerId, username, nickname, avatar, role, createdAt`（ISO-8601）
+- `dto/UpdateProfileRequest.java` — `@Size(min=2,max=50)` nickname；`@ValidAvatarUrl` avatar；兩欄位均可 null
+- `validation/ValidAvatarUrl.java` — 自訂 `@Constraint` 注解（Jakarta EE 10）
+- `validation/AvatarUrlValidator.java` — 允許 null / `https?://...` / `data:image/...;base64,...`
+- `service/PlayerService.java` — `getProfile(Long)` / `updateProfile(Long, UpdateProfileRequest)`
+- `controller/PlayerController.java` — `GET /api/v1/player/profile`（200）；`PUT /api/v1/player/profile`（200）
+- `exception/NoUpdateFieldException.java` — extends RuntimeException → HTTP 400
+
+### Added (前置類別重建)
+- `pom.xml` — Spring Boot 3.3.5, Java 21, JJWT 0.12.6, Lombok, MySQL, Redis, Kafka
+- `src/main/resources/application.yml` — 還原自 target/classes/application.yml
+- `MemberServiceApplication.java`
+- `entity/Member.java` — `@Entity @Table("members")`；對齊 init.sql schema（id/username/email/passwordHash/nickname/avatar/role/status/createdAt/updatedAt）
+- `repository/MemberRepository.java` — `existsByUsername`, `existsByEmail`, `findByUsername`
+- `dto/ApiResponse.java` — `ok(T)` / `success(T, String)` / `error(String)` 工廠方法
+- `dto/RegisterRequest.java` / `RegisterResponse.java`
+- `dto/LoginRequest.java` / `LoginResponse.java`
+- `dto/RefreshRequest.java` / `RefreshResponse.java`
+- `exception/GlobalExceptionHandler.java` — 完整處理：409/404/401/403/400(validation)/400(NoUpdateField)/500
+- `exception/MemberNotFoundException.java` / `MemberAlreadyExistsException.java`
+- `exception/InvalidCredentialsException.java` / `AccountDisabledException.java` / `InvalidTokenException.java`
+- `security/JwtTokenProvider.java` — JJWT 0.12.6 簽發 / 驗證 / 解析
+- `security/JwtAuthenticationFilter.java` — OncePerRequestFilter；principal = `String.valueOf(memberId)`
+- `security/InternalSecretFilter.java` — `@Component`；`MessageDigest.isEqual()` 常數時間比較
+- `config/JwtFilterConfig.java` — 宣告 `JwtAuthenticationFilter` @Bean 並停用 Servlet 自動註冊
+- `service/TokenRedisService.java` — refresh token 存取 + JTI 黑名單
+- `service/AuthService.java` — register / login / logout / refreshToken
+- `controller/AuthController.java` — `/api/v1/auth/{register,login,logout,refresh}`
+
+### Tests Added
+- `service/PlayerServiceTest.java` — 7 個測試案例（全部通過）
+  - `getProfile_success`, `getProfile_memberNotFound`
+  - `updateProfile_nicknameOnly_success`, `updateProfile_avatarUrl_success`, `updateProfile_avatarBase64_success`
+  - `updateProfile_noFields_throwsException`, `updateProfile_memberNotFound`
+- `validation/AvatarUrlValidatorTest.java` — 5 個測試案例（全部通過）
+  - `nullValue_isValid`, `validHttpUrl_isValid`, `validBase64DataUri_isValid`
+  - `invalidString_isInvalid`, `ftpUrl_isInvalid`
+
+### Test Results
+```
+Tests run: 12, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+```
+
+### Security Notes
+- playerId 只從 JWT SecurityContext（`authentication.getName()`）取得，不接受 request params
+- `mapToResponse()` 明確排除 passwordHash
+- avatar 欄位不寫入任何 log（可能含大型 Base64 字串）
+- `@ValidAvatarUrl` 允許 null（field optional）；`not-a-url` / `ftp://` 均拒絕
+
+---
+
+## [T-015] — 2026-05-27 — SecurityConfig 從零重建
+
+### Added
+- `config/SecurityConfig.java` — `@Configuration @EnableWebSecurity @RequiredArgsConstructor`；完整 SecurityFilterChain、PasswordEncoder、AuthenticationManager 三個 Bean
+
+### SecurityFilterChain 規則
+| 路徑 | JWT 驗證 | InternalSecretFilter |
+|---|---|---|
+| `/api/v1/auth/**` | ❌ permitAll | ❌ 不攔截 |
+| `/internal/**` | ❌ permitAll | ✅ 驗 X-Internal-Secret |
+| `/actuator/health`, `/actuator/info` | ❌ permitAll | ❌ 不攔截 |
+| 其他所有路徑 | ✅ authenticated | ❌ 不攔截 |
+
+### Filter 執行順序
+```
+InternalSecretFilter → JwtAuthenticationFilter → UsernamePasswordAuthenticationFilter
+```
+
+### Verified (既有 filter，未修改)
+- `security/InternalSecretFilter.java`
+  - 非 `/internal/**` 路徑直接放行 ✅
+  - 讀取 `X-Internal-Secret` header ✅
+  - 使用 `MessageDigest.isEqual()` 常數時間比較 ✅
+  - 驗證失敗回 HTTP 401 JSON，不繼續 filter chain ✅
+  - ⚠️ 401 message 實際為 `"Unauthorized internal request"`（規格指定 `"Invalid internal secret"`，既有程式碼未改動）
+- `security/JwtAuthenticationFilter.java`
+  - 讀取 `Authorization: Bearer <token>` header ✅
+  - 呼叫 `JwtTokenProvider.validateToken()`；無效 token 不設 context，繼續 chain ✅
+  - 額外執行 `tokenRedisService.isBlacklisted(jti)` 黑名單檢查 ✅
+  - 有效 token：`claims.getSubject()` → `String.valueOf(memberId)` 作為 principal，設入 `SecurityContextHolder` ✅
+
+### Security Notes
+- CSRF 禁用（stateless REST API，無 cookie session）
+- `SessionCreationPolicy.STATELESS`：Spring Security 不建立也不使用 HttpSession
+- `/internal/**` 設 `permitAll` 是刻意設計：JWT 不管此路徑，存取控制完全由 `InternalSecretFilter` 負責
+- `PasswordEncoder` Bean 供 `AuthService` 在 register 時 hash、login 時比對使用
+- `AuthenticationManager` Bean 供 `AuthService.login()` 呼叫 `authenticate()` 使用
+
+---
+
 ## [T-014] — 2026-05-27 — Player Profile GET and PUT API
 
 ### Added

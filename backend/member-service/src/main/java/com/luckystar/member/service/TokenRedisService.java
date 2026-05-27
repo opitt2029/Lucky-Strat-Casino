@@ -1,47 +1,45 @@
 package com.luckystar.member.service;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.Optional;
-import java.util.concurrent.TimeUnit;
+import java.time.Duration;
 
 @Service
+@RequiredArgsConstructor
 public class TokenRedisService {
+
+    private static final String REFRESH_KEY_PREFIX = "refresh:";
+    private static final String BLACKLIST_KEY_PREFIX = "blacklist:";
 
     private final StringRedisTemplate redisTemplate;
 
-    public TokenRedisService(StringRedisTemplate redisTemplate) {
-        this.redisTemplate = redisTemplate;
+    public void saveRefreshToken(Long memberId, String token, long ttlMs) {
+        redisTemplate.opsForValue().set(
+                REFRESH_KEY_PREFIX + memberId,
+                token,
+                Duration.ofMillis(ttlMs)
+        );
     }
 
-    public void saveRefreshToken(Long memberId, String refreshToken, long ttlMs) {
-        redisTemplate.opsForValue()
-                .set(refreshKey(memberId), refreshToken, ttlMs, TimeUnit.MILLISECONDS);
-    }
-
-    public Optional<String> getRefreshToken(Long memberId) {
-        return Optional.ofNullable(redisTemplate.opsForValue().get(refreshKey(memberId)));
+    public String getRefreshToken(Long memberId) {
+        return redisTemplate.opsForValue().get(REFRESH_KEY_PREFIX + memberId);
     }
 
     public void deleteRefreshToken(Long memberId) {
-        redisTemplate.delete(refreshKey(memberId));
+        redisTemplate.delete(REFRESH_KEY_PREFIX + memberId);
     }
 
-    public void addToBlacklist(String jti, long remainingTtlMs) {
-        redisTemplate.opsForValue()
-                .set(blacklistKey(jti), "1", remainingTtlMs, TimeUnit.MILLISECONDS);
+    public void addToBlacklist(String jti, long ttlMs) {
+        redisTemplate.opsForValue().set(
+                BLACKLIST_KEY_PREFIX + jti,
+                "1",
+                Duration.ofMillis(ttlMs)
+        );
     }
 
     public boolean isBlacklisted(String jti) {
-        return Boolean.TRUE.equals(redisTemplate.hasKey(blacklistKey(jti)));
-    }
-
-    private String refreshKey(Long memberId) {
-        return "refresh:" + memberId;
-    }
-
-    private String blacklistKey(String jti) {
-        return "blacklist:" + jti;
+        return Boolean.TRUE.equals(redisTemplate.hasKey(BLACKLIST_KEY_PREFIX + jti));
     }
 }
