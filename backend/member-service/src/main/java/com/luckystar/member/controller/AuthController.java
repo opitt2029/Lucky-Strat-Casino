@@ -1,6 +1,7 @@
 package com.luckystar.member.controller;
 
 import com.luckystar.member.dto.*;
+import com.luckystar.member.exception.InvalidTokenException;
 import com.luckystar.member.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -35,7 +36,13 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> logout(
             @RequestHeader("Authorization") String authorizationHeader,
             Authentication authentication) {
-        Long memberId = Long.parseLong(authentication.getName());
+        Long memberId;
+        try {
+            memberId = Long.parseLong(authentication.getName());
+        } catch (NumberFormatException e) {
+            // principal 非數字 → token 內容異常，視為未授權
+            throw new InvalidTokenException("Invalid authentication principal");
+        }
         authService.logout(authorizationHeader, memberId);
         return ResponseEntity.ok(ApiResponse.success(null, "Logout successful"));
     }

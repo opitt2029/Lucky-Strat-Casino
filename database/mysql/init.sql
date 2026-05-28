@@ -42,8 +42,8 @@ CREATE TABLE IF NOT EXISTS members (
     updated_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP
                                          ON UPDATE CURRENT_TIMESTAMP,
 
-    UNIQUE KEY uk_members_username (username),
-    UNIQUE KEY uk_members_email    (email),
+    UNIQUE KEY uq_members_username (username),
+    UNIQUE KEY uq_members_email    (email),
     INDEX      idx_members_status  (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

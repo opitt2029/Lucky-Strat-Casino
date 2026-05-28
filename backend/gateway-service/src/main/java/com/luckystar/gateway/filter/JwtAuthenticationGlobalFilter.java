@@ -81,16 +81,22 @@ public class JwtAuthenticationGlobalFilter implements GlobalFilter, Ordered {
                 ? Mono.just(Boolean.FALSE)
                 : redis.hasKey(BLACKLIST_KEY_PREFIX + jti);
 
-        return blacklistCheck.flatMap(blocked -> {
-            if (Boolean.TRUE.equals(blocked)) {
-                return unauthorized(exchange, "token revoked");
-            }
-            ServerHttpRequest mutated = exchange.getRequest().mutate()
-                    .header("X-User-Id", userId == null ? "" : userId)
-                    .header("X-User-Role", role == null ? "" : role.toString())
-                    .build();
-            return chain.filter(exchange.mutate().request(mutated).build());
-        });
+        return blacklistCheck
+                // Redis 故障 → fail-closed：拒絕請求而非放行，避免黑名單失效導致已撤銷的 token 復活
+                .onErrorResume(err -> {
+                    log.warn("Redis blacklist check failed, denying request: {}", err.getMessage());
+                    return Mono.just(Boolean.TRUE);
+                })
+                .flatMap(blocked -> {
+                    if (Boolean.TRUE.equals(blocked)) {
+                        return unauthorized(exchange, "token revoked");
+                    }
+                    ServerHttpRequest mutated = exchange.getRequest().mutate()
+                            .header("X-User-Id", userId == null ? "" : userId)
+                            .header("X-User-Role", role == null ? "" : role.toString())
+                            .build();
+                    return chain.filter(exchange.mutate().request(mutated).build());
+                });
     }
 
     private boolean isWhitelisted(String path) {
@@ -110,7 +116,6 @@ public class JwtAuthenticationGlobalFilter implements GlobalFilter, Ordered {
 
     @Override
     public int getOrder() {
-        // 早於路由轉發
-        return -100;
+        return FilterOrder.JWT_AUTHENTICATION;
     }
 }

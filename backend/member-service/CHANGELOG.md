@@ -5,6 +5,104 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Security Audit P1] — 2026-05-28 — P1 安全與穩定性修復（7 項）
+
+### Context
+延續同日 `[Security Audit P0]` 修復，本次處理所有實際存在的 P1 項目。
+跨 `member-service` 與 `gateway-service` 兩個服務。
+
+### Fixed (member-service)
+- **#4 剩餘 — `AuthController.logout` 的 `Long.parseLong` 未 catch（MED）**
+  - `controller/AuthController.java`
+    - `Long.parseLong(authentication.getName())` 包 `try/catch NumberFormatException`
+    - 失敗時拋 `InvalidTokenException` → HTTP 401（原本會直接 500）
+- **#5 `PlayerService.updateProfile()` 無 `@Transactional`（MED）**
+  - `service/PlayerService.java`
+    - `updateProfile()` 加 `@Transactional`：中途失敗自動回滾
+    - `getProfile()` 加 `@Transactional(readOnly = true)`：避免不必要的 dirty checking
+- **#11 `Member.passwordHash` 序列化洩漏防禦（MED，原報告 HIGH）**
+  - `entity/Member.java`
+    - 加 `@JsonIgnore`：Jackson 永不序列化此欄位（雙層防禦，即便 Member entity 不小心被當 response 也安全）
+    - 加 `@ToString(exclude = "passwordHash")`：Lombok toString 排除
+    - 加 `import com.fasterxml.jackson.annotation.JsonIgnore` 與 `lombok.ToString`
+
+### Fixed (gateway-service)
+- **#14 auth 端點無速率限制 → 暴力破解風險（HIGH）**
+  - 新增 `config/RateLimitConfig.java`
+    - `KeyResolver ipKeyResolver` Bean：優先取 `X-Forwarded-For` 首段 IP，否則 socket remote address
+  - `resources/application.yml`
+    - `member-auth` 路由加 `RequestRateLimiter` filter
+    - 預設 5 req/sec replenish、burst 10；可由 `AUTH_RATE_LIMIT_REPLENISH` / `AUTH_RATE_LIMIT_BURST` 環境變數調整
+    - 使用 Spring Cloud Gateway 內建 `RedisRateLimiter`（無需新依賴）
+- **#18 CORS `allowedHeaders: "*"` + `allowCredentials: true` 違反規範（MED）**
+  - `resources/application.yml`
+    - `allowedHeaders` 改為白名單：`[Authorization, Content-Type, X-Requested-With]`
+- **#21 Gateway 缺乏 filter order 文件化（MED）**
+  - 新增 `filter/FilterOrder.java`：集中定義所有 GlobalFilter 的 order 常數
+    - `RATE_LIMIT = -200`、`JWT_AUTHENTICATION = -100`
+  - `filter/JwtAuthenticationGlobalFilter.java`
+    - `getOrder()` 改用 `FilterOrder.JWT_AUTHENTICATION` 常數
+- **#24 Gateway Redis 黑名單查詢 fail-closed（MED）**
+  - `filter/JwtAuthenticationGlobalFilter.java`
+    - `redis.hasKey()` 加上 `.onErrorResume(...)`：Redis 故障時視為「token 已撤銷」拒絕請求（fail-closed）
+    - 防止 Redis 暫時不可用時，已被撤銷的 token 因黑名單查不到而復活
+
+### Configuration Notes
+新增可選環境變數（gateway-service）：
+- `AUTH_RATE_LIMIT_REPLENISH`（預設 `5`）：每秒補充的 token 數
+- `AUTH_RATE_LIMIT_BURST`（預設 `10`）：burst 允許的最大 token 數
+
+### Verification
+- 所有檔案語法正確（Java 21 + Spring Boot 3.3.5）
+- gateway pom.xml 已含 `spring-boot-starter-data-redis-reactive`，`RedisRateLimiter` 由 `spring-cloud-starter-gateway` 提供，無新增依賴
+
+---
+
+## [Security Audit P0] — 2026-05-28 — 三項 P0 安全漏洞修復
+
+### Context
+依據 `AUDIT_REPORT.md` 驗證後實際存在的 P0 漏洞修復。
+報告中其他 P0 候選項目（#9 /internal/** filter 順序、#25/#26/#35/#38 wallet/kafka）經驗證後不成立或無對應程式碼，未列入。
+
+### Fixed
+- **#19 JWT role claim 遺漏 → Gateway RBAC 失效（HIGH）**
+  - `security/JwtTokenProvider.java`
+    - `buildToken()` 加入 `.claim("role", role)`
+    - `generateAccessToken(memberId, username)` → `generateAccessToken(memberId, username, role)` **（簽名變更）**
+    - `generateRefreshToken(memberId, username)` → `generateRefreshToken(memberId, username, role)` **（簽名變更）**
+  - `service/AuthService.java`
+    - `login()` 改傳 `member.getRole()` 給 token 生成
+    - `refreshToken()` 重新查 DB 取最新 role（避免使用者降權後仍持有高權限 token）
+    - 順手補 `Long.parseLong(claims.getSubject())` 的 `NumberFormatException` 捕捉（部分解決 #4）
+  - 影響：Gateway `JwtAuthenticationGlobalFilter` 的 `claims.get("role")` 不再永遠為 null，下游 `X-User-Role` header 才能真正用於 RBAC
+
+- **#13 AvatarUrl SVG XSS（HIGH）**
+  - `validation/AvatarUrlValidator.java`
+    - 將 `startsWith("data:image/")` 寬鬆比對改為 MIME 白名單：`jpeg` / `png` / `gif` / `webp`
+    - 明確拒絕 `data:image/svg+xml`（可內嵌 `<script>` 造成 XSS）與其他 `data:` scheme（如 `data:text/html`）
+
+### Cross-service Changes
+- **#17 gateway-service CORS localhost fallback（HIGH）**
+  - `backend/gateway-service/src/main/resources/application.yml`
+    - `${CORS_ALLOWED_ORIGINS:http://localhost:5173}` → `${CORS_ALLOWED_ORIGINS:?...}` 強制必填
+  - **部署影響**：Gateway 啟動現在強制要求 `CORS_ALLOWED_ORIGINS` 環境變數，缺失將 fail-fast
+
+### Breaking Changes
+- `JwtTokenProvider.generateAccessToken` / `generateRefreshToken` 增加第三個參數 `String role`
+- 舊版 access token（無 role claim）仍可通過簽章驗證，但 `X-User-Role` header 會是空字串；建議部署後讓所有使用者重新登入
+
+### Audit Misjudgments Identified
+驗證審計報告時發現以下項目**不成立**（已記錄於 AUDIT_REPORT.md）：
+- #9 `/internal/**` permitAll：`SecurityConfig` 已用 `addFilterBefore` 正確設定 filter 順序
+- #10 InternalSecretFilter timing attack：已使用 `MessageDigest.isEqual()`
+- #12 Mass Assignment：`UpdateProfileRequest` 僅含 nickname/avatar，無敏感欄位
+- #15 JWT secret 長度未驗證：JJWT 0.12.6 `Keys.hmacShaKeyFor()` 已內建 `WeakKeyException`
+
+### Known Pre-existing Issues (Not in scope)
+- `test/AuthServiceLoginTest.java` 與 `test/RefreshTokenServiceTest.java` 引用了不存在的 method（`setActive`、`getRefreshTokenExpiryMs`、`getMemberIdFromToken`）— 在本次修改前已編譯失敗，需另開 task 修
+
+---
+
 ## [T-014 rebuild] — 2026-05-27 — Player Profile GET & PUT API（全量重建）
 
 ### Context

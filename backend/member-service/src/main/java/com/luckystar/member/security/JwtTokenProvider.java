@@ -28,20 +28,21 @@ public class JwtTokenProvider {
         this.refreshTokenExpiryMs = refreshTokenExpiryMs;
     }
 
-    public String generateAccessToken(Long memberId, String username) {
-        return buildToken(memberId, username, accessTokenExpiryMs, "access");
+    public String generateAccessToken(Long memberId, String username, String role) {
+        return buildToken(memberId, username, role, accessTokenExpiryMs, "access");
     }
 
-    public String generateRefreshToken(Long memberId, String username) {
-        return buildToken(memberId, username, refreshTokenExpiryMs, "refresh");
+    public String generateRefreshToken(Long memberId, String username, String role) {
+        return buildToken(memberId, username, role, refreshTokenExpiryMs, "refresh");
     }
 
-    private String buildToken(Long memberId, String username, long expiryMs, String type) {
+    private String buildToken(Long memberId, String username, String role, long expiryMs, String type) {
         Date now = new Date();
         return Jwts.builder()
                 .id(UUID.randomUUID().toString())
                 .subject(String.valueOf(memberId))
                 .claim("username", username)
+                .claim("role", role)
                 .claim("type", type)
                 .issuedAt(now)
                 .expiration(new Date(now.getTime() + expiryMs))

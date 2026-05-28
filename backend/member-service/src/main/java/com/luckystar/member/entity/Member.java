@@ -1,9 +1,11 @@
 package com.luckystar.member.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import lombok.ToString;
 
 import java.time.LocalDateTime;
 
@@ -12,6 +14,7 @@ import java.time.LocalDateTime;
 @Getter
 @Setter
 @NoArgsConstructor
+@ToString(exclude = "passwordHash")
 public class Member {
 
     @Id
@@ -24,6 +27,8 @@ public class Member {
     @Column(nullable = false, unique = true, length = 100)
     private String email;
 
+    // 雙層防禦：Jackson 序列化排除 + Lombok toString 排除
+    @JsonIgnore
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 

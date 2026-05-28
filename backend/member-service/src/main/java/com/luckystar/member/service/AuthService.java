@@ -69,8 +69,8 @@ public class AuthService {
             throw new AccountDisabledException("Account is disabled");
         }
 
-        String accessToken = jwtTokenProvider.generateAccessToken(member.getId(), member.getUsername());
-        String refreshToken = jwtTokenProvider.generateRefreshToken(member.getId(), member.getUsername());
+        String accessToken = jwtTokenProvider.generateAccessToken(member.getId(), member.getUsername(), member.getRole());
+        String refreshToken = jwtTokenProvider.generateRefreshToken(member.getId(), member.getUsername(), member.getRole());
 
         long refreshTtl = jwtTokenProvider.getRemainingTtlMs(refreshToken);
         tokenRedisService.saveRefreshToken(member.getId(), refreshToken, refreshTtl);
@@ -98,7 +98,12 @@ public class AuthService {
         }
 
         Claims claims = jwtTokenProvider.getClaims(token);
-        Long memberId = Long.parseLong(claims.getSubject());
+        Long memberId;
+        try {
+            memberId = Long.parseLong(claims.getSubject());
+        } catch (NumberFormatException e) {
+            throw new InvalidTokenException("Invalid refresh token subject");
+        }
         String username = claims.get("username", String.class);
 
         String stored = tokenRedisService.getRefreshToken(memberId);
@@ -109,10 +114,14 @@ public class AuthService {
             throw new InvalidTokenException("Refresh token mismatch");
         }
 
+        // 重新查 DB 取最新 role（避免 token 內 role 過時，例如使用者被降權）
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new InvalidTokenException("Member not found"));
+
         tokenRedisService.deleteRefreshToken(memberId);
 
-        String newAccess = jwtTokenProvider.generateAccessToken(memberId, username);
-        String newRefresh = jwtTokenProvider.generateRefreshToken(memberId, username);
+        String newAccess = jwtTokenProvider.generateAccessToken(memberId, username, member.getRole());
+        String newRefresh = jwtTokenProvider.generateRefreshToken(memberId, username, member.getRole());
         long refreshTtl = jwtTokenProvider.getRemainingTtlMs(newRefresh);
         tokenRedisService.saveRefreshToken(memberId, newRefresh, refreshTtl);
 

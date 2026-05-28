@@ -8,6 +8,7 @@ import com.luckystar.member.exception.NoUpdateFieldException;
 import com.luckystar.member.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.format.DateTimeFormatter;
 
@@ -19,12 +20,14 @@ public class PlayerService {
 
     private final MemberRepository memberRepository;
 
+    @Transactional(readOnly = true)
     public ProfileResponse getProfile(Long playerId) {
         Member member = memberRepository.findById(playerId)
                 .orElseThrow(() -> new MemberNotFoundException("Member not found: " + playerId));
         return mapToResponse(member);
     }
 
+    @Transactional
     public ProfileResponse updateProfile(Long playerId, UpdateProfileRequest request) {
         if (request.getNickname() == null && request.getAvatar() == null) {
             throw new NoUpdateFieldException(
