@@ -39,6 +39,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [fix] — 2026-05-28 — Wallet Kafka 事件失敗不再靜默丟失（FIX-2）
+
+### Fixed
+
+- `backend/wallet-service/src/main/java/com/luckystar/wallet/kafka/MemberEventListener.java`
+  - 移除「無論成功或失敗都 `ack.acknowledge()`」的邏輯，改為**僅在成功時 ack**。
+  - 原因：原本建立錢包失敗時只 log 卻仍 ack，導致該筆 `member.registered` 事件被吃掉、永不重試，會員因而沒有錢包（資料遺失）。
+  - 格式錯誤（`NumberFormatException`）視為不可重試的 poison message，直接拋出交由 error handler 送 DLT。
+  - 暫時性錯誤（如 DB 斷線）讓例外往外拋、不 ack，由 error handler 重試後仍失敗才送 DLT。
+
+### Added
+
+- `backend/wallet-service/src/main/java/com/luckystar/wallet/config/KafkaConsumerConfig.java`
+  - 新增 `DeadLetterPublishingRecoverer`：失敗訊息送往 `<topic>.DLT`（即 `member.registered.DLT`）。
+  - 新增 `DefaultErrorHandler`：暫時性錯誤重試 3 次（間隔 1 秒），仍失敗才送 DLT；`NumberFormatException` 列為不可重試。
+  - 將 error handler 透過 `factory.setCommonErrorHandler(...)` 掛上既有的 listener container factory（保留 `MANUAL_IMMEDIATE` ack 模式）。
+
+### Modified
+
+- `backend/wallet-service/src/test/java/com/luckystar/wallet/kafka/MemberEventListenerTest.java`
+  - 更新測試：poison message 應拋例外且**不** ack；暫時性失敗應傳播例外且**不** ack；新增 trim 空白測試。
+
+### Verified
+
+- `mvn -Dtest=MemberEventListenerTest test` → `Tests run: 4, Failures: 0, Errors: 0`。
+- 既有的 `WalletServiceApplicationTests.contextLoads` 在本機因未啟動 PostgreSQL（`Schema-validation: missing table [wallets]`）而失敗，此為**既有環境問題**，已用 git stash 比對確認與本次變更無關。
+
+---
+
 ## [fix] — 2026-05-28 — Wallet 餘額 API Header 名稱對齊 Gateway（FIX-1）
 
 ### Fixed

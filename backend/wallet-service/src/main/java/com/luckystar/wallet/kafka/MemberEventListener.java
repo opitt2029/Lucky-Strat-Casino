@@ -18,21 +18,13 @@ public class MemberEventListener {
     public void handleMemberRegistered(String message, Acknowledgment ack) {
         log.info("Received member.registered event: {}", message);
 
-        long playerId;
-        try {
-            playerId = Long.parseLong(message.trim());
-        } catch (NumberFormatException e) {
-            log.error("Invalid playerId in member.registered event: {}", message);
-            ack.acknowledge();
-            return;
-        }
+        // 格式錯誤屬不可重試（poison）：拋出後由 DefaultErrorHandler 直送 member.registered.DLT
+        long playerId = Long.parseLong(message.trim());
 
-        try {
-            walletService.createWallet(playerId);
-        } catch (Exception e) {
-            log.error("Unexpected error handling member.registered for playerId={}", playerId, e);
-        }
+        // 暫時性失敗（如 DB 斷線）讓例外往外拋，不 ack；error handler 重試後仍失敗才送 DLT
+        walletService.createWallet(playerId);
 
+        // 僅在成功時 ack，避免事件遺失
         ack.acknowledge();
     }
 }
