@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [docs] — 2026-05-29 — AI 開發前必讀（AGENTS.md/CLAUDE.md）+ CHANGELOG 單一來源約定
+
+### Added
+- `AGENTS.md`（新增）：AI / 自動化代理開發前必讀的 primer —— 必讀文件清單、10 條已知地雷、約定速查、CHANGELOG 規則、驗證指令。跨工具通用。
+- `CLAUDE.md`（新增）：精簡指標，以 `@AGENTS.md` 帶入完整內容 + Claude Code 專屬補充（內容只維護 AGENTS.md 一份，避免漂移）。
+
+### Changed
+- `CONTRIBUTING.md`：新增 §6「CHANGELOG 更新規則」—— 確立**根目錄 `./CHANGELOG.md` 為單一真相來源**、何時更新、條目格式。
+- `backend/member-service/CHANGELOG.md`：頂部加凍結註記，標明已凍結為歷史、新條目改寫根目錄。
+
+### Why
+- 新 AI / 新組員缺乏一致的上下文起點，重複踩同樣的雷（如 `./mvnw` 不存在、必填環境變數、雙資料源、ADR-002 迴圈）。
+- 原本同時存在根目錄與 member-service 兩份 CHANGELOG 且只有 member 被維護，造成「該更新哪份」的模糊；統一為根目錄一份降低維護成本與脫節風險。
+
+---
+
 ## [feat] — 2026-05-29 — ADR-002 wallet.credit 指令/事件分離，串通簽到入帳（T-017/T-018）
 
 ### Decision

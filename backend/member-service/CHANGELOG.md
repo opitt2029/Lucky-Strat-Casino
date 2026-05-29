@@ -1,5 +1,9 @@
 # Changelog — member-service
 
+> 🧊 **本檔已凍結為歷史紀錄（2026-05-29 起）。**
+> 全專案改用單一的根目錄 [`/CHANGELOG.md`](../../CHANGELOG.md) 作為唯一 CHANGELOG，**新條目請寫在那裡**，勿在本檔新增。
+> 詳見 [CONTRIBUTING.md §6](../../CONTRIBUTING.md) 與 [AGENTS.md §3](../../AGENTS.md)。本檔保留作為 member-service 早期開發的歷史參考。
+
 All notable changes to member-service are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
