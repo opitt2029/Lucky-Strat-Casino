@@ -1,12 +1,21 @@
 package com.luckystar.wallet.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.luckystar.wallet.dto.DebitRequest;
+import com.luckystar.wallet.dto.DebitResponse;
 import com.luckystar.wallet.dto.WalletBalanceResponse;
+import com.luckystar.wallet.exception.InsufficientBalanceException;
 import com.luckystar.wallet.exception.WalletNotFoundException;
+import com.luckystar.wallet.kafka.WalletDebitEvent;
 import com.luckystar.wallet.postgres.entity.Wallet;
+import com.luckystar.wallet.postgres.entity.WalletTransaction;
 import com.luckystar.wallet.postgres.repository.WalletRepository;
+import com.luckystar.wallet.postgres.repository.WalletTransactionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,6 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class WalletService {
 
     private final WalletRepository walletRepository;
+    private final WalletTransactionRepository walletTransactionRepository;
+    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true, transactionManager = "postgresTransactionManager")
     public WalletBalanceResponse getBalance(Long playerId) {
@@ -30,6 +42,97 @@ public class WalletService {
         }
         long availableBalance = Math.max(0L, balance - frozenAmount);
         return new WalletBalanceResponse(balance, frozenAmount, availableBalance);
+    }
+
+    @Transactional(transactionManager = "postgresTransactionManager")
+    public DebitResponse debit(DebitRequest request) {
+        // Step 1: idempotency check — return existing transaction without any side effects
+        var existing = walletTransactionRepository.findByIdempotencyKey(request.getIdempotencyKey());
+        if (existing.isPresent()) {
+            WalletTransaction tx = existing.get();
+            return DebitResponse.builder()
+                    .transactionId(tx.getId())
+                    .playerId(tx.getPlayerId())
+                    .amount(tx.getAmount())
+                    .balanceBefore(tx.getBalanceBefore())
+                    .balanceAfter(tx.getBalanceAfter())
+                    .idempotent(true)
+                    .build();
+        }
+
+        // Step 2: load wallet
+        Wallet wallet = walletRepository.findById(request.getPlayerId())
+                .orElseThrow(() -> new WalletNotFoundException(
+                        "Wallet not found for player: " + request.getPlayerId()));
+
+        // Step 3: balance guard
+        if (wallet.getBalance() < request.getAmount()) {
+            throw new InsufficientBalanceException("Insufficient balance");
+        }
+
+        // Step 4-5: record and deduct
+        long balanceBefore = wallet.getBalance();
+        wallet.setBalance(wallet.getBalance() - request.getAmount());
+
+        // Step 6: persist wallet — ObjectOptimisticLockingFailureException propagates as-is → 409
+        walletRepository.save(wallet);
+
+        // Step 7: persist transaction record
+        WalletTransaction tx;
+        try {
+            WalletTransaction txToSave = WalletTransaction.builder()
+                    .playerId(request.getPlayerId())
+                    .type("DEBIT")
+                    .subType("BET")
+                    .amount(request.getAmount())
+                    .balanceBefore(balanceBefore)
+                    .balanceAfter(wallet.getBalance())
+                    .idempotencyKey(request.getIdempotencyKey())
+                    .referenceId(request.getReferenceId())
+                    .build();
+            tx = walletTransactionRepository.save(txToSave);
+        } catch (DataIntegrityViolationException e) {
+            // Two concurrent requests with the same idempotencyKey both passed the Step 1 check.
+            // The DB UNIQUE constraint blocked the second insert — re-query and return the winner's record.
+            return walletTransactionRepository.findByIdempotencyKey(request.getIdempotencyKey())
+                    .map(winner -> DebitResponse.builder()
+                            .transactionId(winner.getId())
+                            .playerId(winner.getPlayerId())
+                            .amount(winner.getAmount())
+                            .balanceBefore(winner.getBalanceBefore())
+                            .balanceAfter(winner.getBalanceAfter())
+                            .idempotent(true)
+                            .build())
+                    .orElseThrow(() -> e); // should not happen: constraint fired, yet record not found
+        }
+
+        // Step 8: publish Kafka event — best-effort, debit already committed
+        try {
+            WalletDebitEvent event = new WalletDebitEvent(
+                    tx.getId(),
+                    tx.getPlayerId(),
+                    tx.getAmount(),
+                    tx.getBalanceBefore(),
+                    tx.getBalanceAfter(),
+                    tx.getIdempotencyKey(),
+                    tx.getReferenceId());
+            String payload = objectMapper.writeValueAsString(event);
+            kafkaTemplate.send("wallet.debit", String.valueOf(request.getPlayerId()), payload);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize WalletDebitEvent for transactionId={}", tx.getId(), e);
+        } catch (Exception e) {
+            log.warn("Failed to publish wallet.debit event for transactionId={}", tx.getId(), e);
+        }
+
+        // Step 9: return response
+        return DebitResponse.builder()
+                .transactionId(tx.getId())
+                .playerId(tx.getPlayerId())
+                .amount(tx.getAmount())
+                .balanceBefore(tx.getBalanceBefore())
+                .balanceAfter(tx.getBalanceAfter())
+                .idempotent(false)
+                .build();
     }
 
     @Transactional(transactionManager = "postgresTransactionManager")

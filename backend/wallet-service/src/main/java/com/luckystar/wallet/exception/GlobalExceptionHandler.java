@@ -3,6 +3,8 @@ package com.luckystar.wallet.exception;
 import com.luckystar.wallet.common.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -15,6 +17,29 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public ApiResponse<Void> handleWalletNotFound(WalletNotFoundException ex) {
         return ApiResponse.error(ex.getMessage());
+    }
+
+    @ExceptionHandler(InsufficientBalanceException.class)
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+    public ApiResponse<Void> handleInsufficientBalance(InsufficientBalanceException ex) {
+        return ApiResponse.error(ex.getMessage());
+    }
+
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiResponse<Void> handleOptimisticLock(ObjectOptimisticLockingFailureException ex) {
+        log.warn("Optimistic lock conflict: {}", ex.getMessage());
+        return ApiResponse.error("Concurrent modification detected, please retry");
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse<Void> handleValidation(MethodArgumentNotValidException ex) {
+        String message = ex.getBindingResult().getFieldErrors().stream()
+                .findFirst()
+                .map(fe -> "Invalid request: " + fe.getField() + " " + fe.getDefaultMessage())
+                .orElse("Invalid request");
+        return ApiResponse.error(message);
     }
 
     @ExceptionHandler(Exception.class)
