@@ -96,6 +96,14 @@
             <artifactId>spring-kafka-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- H2: 測試用記憶體資料庫，讓 @SpringBootTest contextLoads 不需外部 PostgreSQL/MySQL
+             即可啟動（比照 member-service 模式）。僅 test scope，不進 production。 -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -110,6 +118,19 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                </configuration>
+            </plugin>
+
+            <!-- 測試時讓 postgres EntityManagerFactory 用 create 模式在 H2 自動建表
+                 （DataSourceConfig 讀 system property jpa.ddl-auto，預設 validate；
+                 測試環境改 create，正式環境仍由 JPA_DDL_AUTO 環境變數控制，互不影響）。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <jpa.ddl-auto>create</jpa.ddl-auto>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
         </plugins>
