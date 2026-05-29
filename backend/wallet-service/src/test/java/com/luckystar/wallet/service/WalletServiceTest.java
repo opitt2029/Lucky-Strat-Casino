@@ -94,6 +94,18 @@ class WalletServiceTest {
         assertThat(response.getAvailableBalance()).isEqualTo(response.getBalance());
     }
 
+    @Test
+    void getBalance_frozenExceedsBalance_availableBalanceIsZeroNotNegative() {
+        Wallet wallet = buildWallet(4L, 50L, 80L);
+        when(walletRepository.findById(4L)).thenReturn(Optional.of(wallet));
+
+        WalletBalanceResponse response = walletService.getBalance(4L);
+
+        assertThat(response.getAvailableBalance()).isEqualTo(0L);
+        assertThat(response.getBalance()).isEqualTo(50L);
+        assertThat(response.getFrozenAmount()).isEqualTo(80L);
+    }
+
     // ── T-015: createWallet ──────────────────────────────────────────────────
 
     @Test
@@ -103,7 +115,7 @@ class WalletServiceTest {
         walletService.createWallet(1L);
 
         ArgumentCaptor<Wallet> captor = ArgumentCaptor.forClass(Wallet.class);
-        verify(walletRepository, times(1)).save(captor.capture());
+        verify(walletRepository, times(1)).saveAndFlush(captor.capture());
         assertThat(captor.getValue().getPlayerId()).isEqualTo(1L);
         assertThat(captor.getValue().getBalance()).isEqualTo(0L);
     }
@@ -114,16 +126,16 @@ class WalletServiceTest {
 
         walletService.createWallet(2L);
 
-        verify(walletRepository, never()).save(any());
+        verify(walletRepository, never()).saveAndFlush(any());
     }
 
     @Test
     void createWallet_dataIntegrityViolation_handledSilently() {
         when(walletRepository.existsById(3L)).thenReturn(false);
-        when(walletRepository.save(any())).thenThrow(new DataIntegrityViolationException("duplicate"));
+        when(walletRepository.saveAndFlush(any())).thenThrow(new DataIntegrityViolationException("duplicate"));
 
         walletService.createWallet(3L);
 
-        verify(walletRepository, times(1)).save(any());
+        verify(walletRepository, times(1)).saveAndFlush(any());
     }
 }

@@ -17,16 +17,22 @@ public class WalletService {
 
     private final WalletRepository walletRepository;
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, transactionManager = "postgresTransactionManager")
     public WalletBalanceResponse getBalance(Long playerId) {
         Wallet wallet = walletRepository.findById(playerId)
                 .orElseThrow(() -> new WalletNotFoundException("Wallet not found for player: " + playerId));
 
-        long availableBalance = wallet.getBalance() - wallet.getFrozenAmount();
-        return new WalletBalanceResponse(wallet.getBalance(), wallet.getFrozenAmount(), availableBalance);
+        long balance = wallet.getBalance();
+        long frozenAmount = wallet.getFrozenAmount();
+        if (frozenAmount > balance) {
+            log.error("Data inconsistency: frozenAmount={} > balance={} for playerId={}",
+                    frozenAmount, balance, playerId);
+        }
+        long availableBalance = Math.max(0L, balance - frozenAmount);
+        return new WalletBalanceResponse(balance, frozenAmount, availableBalance);
     }
 
-    @Transactional
+    @Transactional(transactionManager = "postgresTransactionManager")
     public void createWallet(Long playerId) {
         if (walletRepository.existsById(playerId)) {
             log.warn("Wallet already exists for playerId={}, skipping creation", playerId);
@@ -39,7 +45,7 @@ public class WalletService {
                 .version(0L)
                 .build();
         try {
-            walletRepository.save(wallet);
+            walletRepository.saveAndFlush(wallet);
             log.info("Wallet created for playerId={}", playerId);
         } catch (DataIntegrityViolationException e) {
             log.warn("Concurrent wallet creation detected for playerId={}, ignoring", playerId);

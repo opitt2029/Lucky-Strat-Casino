@@ -46,6 +46,12 @@
             <artifactId>spring-kafka</artifactId>
         </dependency>
 
+        <!-- Security: 保護 /api/** 僅接受來自 gateway 的內部請求 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
         <!-- Actuator -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -1,5 +1,6 @@
 package com.luckystar.wallet.config;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.annotation.EnableKafka;
@@ -11,9 +12,26 @@ import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
 
-@Configuration
+/**
+ * Kafka consumer 錯誤處理：重試 3 次（間隔 2 秒），耗盡後送進 <topic>.DLT，
+ * 避免毒丸訊息卡死 partition。JSON 格式錯誤不重試，直接進 DLT。
+ */
 @EnableKafka
+@Configuration
 public class KafkaConsumerConfig {
+
+    @Bean
+    public DefaultErrorHandler kafkaErrorHandler(KafkaTemplate<String, String> kafkaTemplate) {
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaTemplate);
+        FixedBackOff backOff = new FixedBackOff(2000L, 3L);
+
+        DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, backOff);
+        handler.addNotRetryableExceptions(
+                JsonProcessingException.class,
+                IllegalArgumentException.class
+        );
+        return handler;
+    }
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory(
@@ -22,6 +40,7 @@ public class KafkaConsumerConfig {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
+        factory.setCommonErrorHandler(kafkaErrorHandler);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
         factory.setCommonErrorHandler(kafkaErrorHandler);
         return factory;
