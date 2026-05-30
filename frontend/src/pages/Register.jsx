@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { useNavigate } from 'react-router-dom'
 import { registerMember } from '../store/slices/authSlice'
 import { fetchWallet } from '../store/slices/walletSlice'
+import CoinRain from '../components/CoinRain'
 import { getBackgroundStyle } from '../theme/backgroundTheme'
 import { getBirthDateMax, isAdultBirthDate } from '../utils/memberPreferences'
 
@@ -48,6 +49,7 @@ export default function Register() {
       className="theme-background grid min-h-screen place-items-center px-4 py-10 text-white"
       style={getBackgroundStyle('auth')}
     >
+      <CoinRain />
       <div className="w-full max-w-xl rounded border border-white/10 bg-zinc-900 p-6">
         <p className="text-xs font-black uppercase tracking-[0.3em] text-zinc-500">Register</p>
         <h1 className="mt-3 text-3xl font-black">建立會員基底</h1>

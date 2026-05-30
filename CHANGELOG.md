@@ -5,6 +5,89 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [added] — 2026-05-30 — 全站新增金幣雨背景特效
+
+### Added
+- `frontend/src/components/CoinRain.jsx`：新增全域金幣雨背景元件，使用固定數量的 CSS 金幣粒子產生落下效果。
+- `frontend/src/index.css`：新增 `coin-rain` 樣式與 `coin-fall` 動畫，並支援 `prefers-reduced-motion` 降低動態。
+
+### Changed
+- `frontend/src/App.jsx`：在全站路由外層掛載 `CoinRain`，讓首頁、登入/註冊、Lobby、遊戲、商城、排行榜、Profile、交易紀錄等頁面都顯示金幣雨。
+- `frontend/src/index.css`：調整金幣雨堆疊順序為背景之上、頁面內容之下；移除 page stage 整層 z-index，改由背景容器內容層高於金幣雨，避免金幣覆蓋卡片、按鈕與表單。
+- `frontend/src/App.jsx`：將 `CoinRain` 移入 `PageTransition` 內，讓金幣雨與頁面內容共用同一個堆疊環境，避免在 Router 外層壓過整個頁面。
+- `frontend/src/components/CoinRain.jsx`、`frontend/src/index.css`：加大金幣尺寸差異與單顆透明度差異，讓落下效果更有前後層次。
+- `frontend/src/App.jsx`、`frontend/src/components/AppShell.jsx`、`frontend/src/pages/Home.jsx`、`frontend/src/pages/Member.jsx`、`frontend/src/pages/Login.jsx`、`frontend/src/pages/Register.jsx`：移除 Router 外層金幣雨，改掛在各頁實際背景容器內，修正首頁因 `scroll-shell` stacking context 造成金幣覆蓋內容的問題。
+
+### Why
+- 使用者希望所有頁面都有金幣雨落下的背景特效，提升 Lucky Star Casino 的賭場氛圍。
+
+### How（如何驗證）
+- `npm run lint`（frontend）→ PASS（無 ESLint warnings）。
+- `npm run build`（frontend）→ PASS（sandbox 內 esbuild 讀取 `vite.config.js` 會遇到 Windows `Access is denied`，升權重跑後成功）。
+
+---
+
+## [changed] — 2026-05-30 — Profile 新增簽到彈出獎勵面板
+
+### Added
+- `frontend/src/pages/Profile.jsx`：Check-in 卡片可展開彈出 section，顯示本月簽到天數、當月日曆、今日可領獎勵與 7/14/21/30 天連續簽到追加獎勵。
+- 彈出面板新增「立即簽到」操作，會呼叫既有 `dailyCheckIn` thunk；簽到成功後更新本地本月簽到日期紀錄並同步刷新 profile。
+- `frontend/src/components/AppShell.jsx`：登入狀態下每日第一次進入任一登入後頁面時，若今日尚未簽到，會在畫面正中央自動彈出簽到確認 modal。
+
+### Changed
+- `backend/member-service/src/main/java/com/luckystar/member/service/CheckinService.java`：簽到獎勵改為每日 100 星幣，連續第 7/14/21/30 天分別追加 1000/2000/3000/5000。
+- `backend/member-service/src/test/java/com/luckystar/member/service/CheckinServiceTest.java`：更新每日簽到獎勵斷言，新增第 7 天里程碑追加獎勵測試。
+- `frontend/src/services/mockApi.js`：mock 簽到獎勵公式同步改為每日 100 + 里程碑追加獎勵。
+- `frontend/src/pages/Profile.jsx`：移除舊的 Profile 內自動展開右側簽到浮層邏輯，保留手動查看用簽到面板。
+- `frontend/src/components/AppShell.jsx`：中央簽到 modal 的 dismiss 按鈕在尚未簽到時顯示「稍後」，簽到完成或今日已簽到後改顯示「關閉」。
+
+### Why
+- 使用者希望 Profile 的 check-in 功能以彈出 section 呈現，並依月份顯示目前簽到天數與新的連續簽到獎勵規則。
+- 使用者希望每日第一次以登入狀態進入網站任一登入後頁面時，能在畫面正中間主動提醒簽到；以玩家 ID + 日期記錄每日自動彈出狀態，避免同一天重複打擾。
+- 真實 API 與 mock API 同步更新獎勵公式，避免前端顯示與實際入帳不一致。
+
+### How（如何驗證）
+- `npm run lint`（frontend）→ PASS（無 ESLint warnings）。
+- `npm run build`（frontend）→ PASS。
+- `mvn -pl backend/member-service test` → PASS（70 tests）。
+
+---
+
+## [changed] — 2026-05-30 — Header 玩家資訊改為頭像與姓名
+
+### Changed
+- `frontend/src/components/AppShell.jsx`：將 header 原本「玩家 / 姓名」文字卡改為玩家頭像 + 姓名資訊欄。
+- 頭像優先使用 `player.avatarUrl`；圖片載入失敗或未設定時，顯示玩家名稱首字作為 fallback。
+
+### Why
+- 使用者希望 header 玩家資訊更直覺顯示目前登入者，改成頭像搭配姓名的視覺資訊欄。
+
+### How（如何驗證）
+- `npm run lint`（frontend）→ PASS（無 ESLint warnings）。
+- `npm run build`（frontend）→ PASS（sandbox 內 esbuild 讀取 `vite.config.js` 會遇到 Windows `Access is denied`，升權重跑後成功）。
+
+---
+
+## [changed] — 2026-05-30 — Profile 快速頭像改為六個賭場角色
+
+### Added
+- `frontend/src/assets/avatars/*.webp`：新增 6 張 AI 生成的賭場角色頭像（三男三女），供會員中心快速頭像使用。
+
+### Changed
+- `frontend/src/pages/Profile.jsx`：快速頭像由 3 個外部 DiceBear URL 改為 6 個本地賭場角色資產，並將頭像按鈕縮小為固定小尺寸。
+- `frontend/src/utils/memberPreferences.js`：移除已不再使用的 DiceBear 快速頭像 URL helper。
+- 選擇快速頭像時會把本地 WebP 資產轉成 `data:image/webp;base64,...` 再寫入表單，符合 member-service 既有頭像 validator 支援的格式。
+
+### Why
+- 使用者希望 `/profile` 頁面的快速頭像縮小一點、增加到六個，且頭像圖片改成三男三女的賭場角色。
+- 本地資產可避免外部頭像服務變動；小型 WebP data URI 可維持後端 profile 欄位相容性。
+
+### How（如何驗證）
+- `npm run lint`（frontend）→ PASS。
+- `npm run build`（frontend）→ PASS（sandbox 內 esbuild 讀取 `vite.config.js` 會遇到 Windows `Access is denied`，升權重跑後成功）。
+
+---
+
 ## [changed] — 2026-05-30 — 遊戲大全入口卡片放大
 
 ### Changed

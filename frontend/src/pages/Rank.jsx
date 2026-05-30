@@ -8,7 +8,7 @@ import { fetchRanks, setRankSearchQuery, setRankTab } from '../store/slices/rank
 export default function Rank() {
   const dispatch = useDispatch()
   const [showFullRank, setShowFullRank] = useState(false)
-  const { globalRank, friendRank, myGlobalRank, activeTab, searchQuery, loading, error } = useSelector((state) => state.rank)
+  const { globalRank, friendRank, myGlobalRank, activeTab, searchQuery, error } = useSelector((state) => state.rank)
   const player = useSelector((state) => state.auth.player)
   const rows = activeTab === 'friends' ? friendRank : globalRank
   const filteredRows = useMemo(
@@ -72,9 +72,8 @@ export default function Rank() {
           )}
         </div>
         <aside className="grid gap-4 content-start">
-          <MetricCard label="榜首分數" value={topScore.toLocaleString()} caption="rankSlice.globalRank" tone="light" />
+          <MetricCard label="榜首分數" value={topScore.toLocaleString()} tone="light" />
           <MetricCard label="我的名次" value={myGlobalRank?.rank ? `#${myGlobalRank.rank}` : '-'} caption={player?.nickname || '目前玩家'} />
-          <MetricCard label="刷新來源" value={loading ? 'Loading' : 'WebSocket'} caption="/topic/rank" />
           <MetricCard label="榜單筆數" value={filteredRows.length.toLocaleString()} caption={activeTab === 'friends' ? '好友榜' : '全服 TOP100'} />
         </aside>
       </section>

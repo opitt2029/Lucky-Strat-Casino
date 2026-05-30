@@ -54,12 +54,3 @@ export function setSocialBinding(playerId, providerId, bound) {
   writeJson(SOCIAL_BINDINGS_KEY, nextBindings)
   return getSocialBindings(playerId)
 }
-
-export function createAvatarPresetUrls(seed = 'player') {
-  const safeSeed = encodeURIComponent(seed || 'player')
-  return [
-    `https://api.dicebear.com/9.x/adventurer/png?seed=${safeSeed}-gold&backgroundColor=b6e3f4`,
-    `https://api.dicebear.com/9.x/personas/png?seed=${safeSeed}-red&backgroundColor=ffd5dc`,
-    `https://api.dicebear.com/9.x/thumbs/png?seed=${safeSeed}-star&backgroundColor=ffdfbf`,
-  ]
-}

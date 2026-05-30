@@ -4,16 +4,100 @@ import AppShell from '../components/AppShell'
 import MetricCard from '../components/MetricCard'
 import { fetchProfile, updateProfile } from '../store/slices/authSlice'
 import { mockApi } from '../services/mockApi'
-import { setBalance } from '../store/slices/walletSlice'
+import { dailyCheckIn, setBalance } from '../store/slices/walletSlice'
 import {
-  createAvatarPresetUrls,
   getSocialBindings,
   setSocialBinding,
   socialProviders,
 } from '../utils/memberPreferences'
+import casinoFemaleBlackjackDealer from '../assets/avatars/casino-female-blackjack-dealer.webp'
+import casinoFemalePokerAce from '../assets/avatars/casino-female-poker-ace.webp'
+import casinoFemaleRouletteHost from '../assets/avatars/casino-female-roulette-host.webp'
+import casinoMaleDealer from '../assets/avatars/casino-male-dealer.webp'
+import casinoMaleHighRoller from '../assets/avatars/casino-male-high-roller.webp'
+import casinoMaleSlotChampion from '../assets/avatars/casino-male-slot-champion.webp'
 
 const MAX_AVATAR_SIZE = 300 * 1024
 const allowedAvatarTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+const CHECKIN_DATES_KEY = 'lucky-star-checkin-dates-v1'
+const DAILY_CHECKIN_REWARD = 100
+const checkInMilestones = [
+  { day: 7, bonus: 1000 },
+  { day: 14, bonus: 2000 },
+  { day: 21, bonus: 3000 },
+  { day: 30, bonus: 5000 },
+]
+const avatarPresets = [
+  { id: 'male-dealer', label: '男荷官', src: casinoMaleDealer },
+  { id: 'male-high-roller', label: '男貴賓', src: casinoMaleHighRoller },
+  { id: 'male-slot-champion', label: '男機台高手', src: casinoMaleSlotChampion },
+  { id: 'female-blackjack-dealer', label: '女二十一點荷官', src: casinoFemaleBlackjackDealer },
+  { id: 'female-roulette-host', label: '女輪盤主持', src: casinoFemaleRouletteHost },
+  { id: 'female-poker-ace', label: '女撲克高手', src: casinoFemalePokerAce },
+]
+
+function readAssetAsDataUrl(src) {
+  return fetch(src)
+    .then((response) => {
+      if (!response.ok) throw new Error('Avatar asset failed to load')
+      return response.blob()
+    })
+    .then(
+      (blob) =>
+        new Promise((resolve, reject) => {
+          const reader = new window.FileReader()
+          reader.onload = () => resolve(reader.result)
+          reader.onerror = reject
+          reader.readAsDataURL(blob)
+        }),
+    )
+}
+
+function readJson(key, fallback) {
+  try {
+    const value = localStorage.getItem(key)
+    return value ? JSON.parse(value) : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writeJson(key, value) {
+  localStorage.setItem(key, JSON.stringify(value))
+}
+
+function getTaipeiDateKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${value.year}-${value.month}-${value.day}`
+}
+
+function getMonthDays(monthKey) {
+  const [year, month] = monthKey.split('-').map(Number)
+  return new Date(year, month, 0).getDate()
+}
+
+function getStoredCheckInDates(playerId) {
+  const allDates = readJson(CHECKIN_DATES_KEY, {})
+  return Array.isArray(allDates[playerId]) ? allDates[playerId] : []
+}
+
+function saveStoredCheckInDate(playerId, dateKey) {
+  const allDates = readJson(CHECKIN_DATES_KEY, {})
+  const nextDates = Array.from(new Set([...(allDates[playerId] || []), dateKey])).sort()
+  writeJson(CHECKIN_DATES_KEY, { ...allDates, [playerId]: nextDates })
+  return nextDates
+}
+
+function calculateCheckInReward(consecutiveDays) {
+  const milestone = checkInMilestones.find((item) => item.day === consecutiveDays)
+  return DAILY_CHECKIN_REWARD + (milestone?.bonus || 0)
+}
 
 export default function Profile() {
   const dispatch = useDispatch()
@@ -28,8 +112,29 @@ export default function Profile() {
   const [notice, setNotice] = useState('')
   const [avatarPreviewError, setAvatarPreviewError] = useState(false)
   const [socialBindings, setSocialBindings] = useState({})
-  const progress = Math.min(((player?.consecutiveCheckInDays || 0) / 7) * 100, 100)
-  const avatarPresets = createAvatarPresetUrls(player?.username || form.nickname || 'player')
+  const [checkInOpen, setCheckInOpen] = useState(false)
+  const [checkInDates, setCheckInDates] = useState([])
+  const todayKey = getTaipeiDateKey()
+  const currentMonthKey = todayKey.slice(0, 7)
+  const currentMonthSignedDates = checkInDates.filter((date) => date.startsWith(currentMonthKey))
+  const signedDayNumbers = new Set(currentMonthSignedDates.map((date) => Number(date.slice(8, 10))))
+  const monthDays = getMonthDays(currentMonthKey)
+  const currentConsecutiveDays = wallet.checkIn.consecutiveDays ?? player?.consecutiveCheckInDays ?? 0
+  const hasCheckedInToday = checkInDates.includes(todayKey) || player?.lastCheckInDate === todayKey
+  const upcomingConsecutiveDays = hasCheckedInToday ? currentConsecutiveDays : currentConsecutiveDays + 1
+  const projectedReward = calculateCheckInReward(Math.max(upcomingConsecutiveDays, 1))
+  const nextMilestone = checkInMilestones.find((item) => item.day > currentConsecutiveDays)
+  const previousMilestoneDay = [...checkInMilestones]
+    .reverse()
+    .find((item) => item.day <= currentConsecutiveDays)?.day || 0
+  const progressTarget = nextMilestone?.day || 30
+  const progress = nextMilestone
+    ? Math.min(
+        ((currentConsecutiveDays - previousMilestoneDay) / (progressTarget - previousMilestoneDay)) * 100,
+        100,
+      )
+    : 100
+  const monthLabel = `${Number(currentMonthKey.slice(5, 7))} 月`
 
   useEffect(() => {
     dispatch(fetchProfile())
@@ -44,6 +149,13 @@ export default function Profile() {
     setAvatarPreviewError(false)
     if (player?.id) {
       setSocialBindings(getSocialBindings(player.id))
+      const storedDates = getStoredCheckInDates(player.id)
+      const seededDates = player.lastCheckInDate
+        ? Array.from(new Set([...storedDates, player.lastCheckInDate])).sort()
+        : storedDates
+      setCheckInDates(seededDates)
+    } else {
+      setCheckInDates([])
     }
   }, [player])
 
@@ -85,10 +197,16 @@ export default function Profile() {
     reader.readAsDataURL(file)
   }
 
-  const handlePickAvatar = (avatarUrl) => {
-    setForm((current) => ({ ...current, avatarUrl }))
-    setAvatarPreviewError(false)
-    setNotice('已套用頭像預設，記得儲存設定')
+  const handlePickAvatar = async (avatar) => {
+    try {
+      setNotice('頭像套用中...')
+      const avatarUrl = await readAssetAsDataUrl(avatar.src)
+      setForm((current) => ({ ...current, avatarUrl }))
+      setAvatarPreviewError(false)
+      setNotice('已套用頭像預設，記得儲存設定')
+    } catch {
+      setNotice('頭像預設載入失敗，請重新選擇')
+    }
   }
 
   const handleSocialBinding = (providerId) => {
@@ -97,6 +215,21 @@ export default function Profile() {
     setSocialBindings(setSocialBinding(player.id, providerId, nextBound))
     const provider = socialProviders.find((item) => item.id === providerId)
     setNotice(`${provider?.label || '第三方帳戶'}${nextBound ? '已綁定' : '已解除綁定'}`)
+  }
+
+  const handleDailyCheckIn = async () => {
+    if (!player?.id) return
+    try {
+      const result = await dispatch(dailyCheckIn()).unwrap()
+      const nextDates = saveStoredCheckInDate(player.id, todayKey)
+      setCheckInDates(nextDates)
+      dispatch(fetchProfile())
+      setNotice(
+        `簽到成功，連續 ${result.consecutiveDays} 天，獲得 ${result.reward.toLocaleString()} 星幣`,
+      )
+    } catch (error) {
+      setNotice(error || '簽到失敗，請稍後再試')
+    }
   }
 
   const handleAddFriend = async (event) => {
@@ -184,28 +317,19 @@ export default function Profile() {
                   required
                 />
               </label>
-              <label className="grid gap-2 text-sm font-bold text-yellow-100/78 sm:col-span-2">
-                頭像 URL
-                <input
-                  name="avatarUrl"
-                  className="rounded border border-yellow-200/15 bg-red-950/70 px-4 py-3 text-white outline-none focus:border-yellow-200"
-                  placeholder="https://example.com/avatar.png"
-                  value={form.avatarUrl}
-                  onChange={handleChange}
-                />
-              </label>
+
               <div className="sm:col-span-2">
                 <p className="text-sm font-bold text-yellow-100/78">快速頭像</p>
-                <div className="mt-2 grid grid-cols-3 gap-2">
-                  {avatarPresets.map((avatarUrl) => (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {avatarPresets.map((avatar) => (
                     <button
-                      key={avatarUrl}
+                      key={avatar.id}
                       type="button"
-                      onClick={() => handlePickAvatar(avatarUrl)}
-                      className="aspect-square overflow-hidden rounded border border-yellow-200/15 bg-red-950/70 transition hover:border-yellow-200"
-                      aria-label="套用頭像預設"
+                      onClick={() => handlePickAvatar(avatar)}
+                      className="h-16 w-16 overflow-hidden rounded border border-yellow-200/15 bg-red-950/70 transition hover:-translate-y-0.5 hover:border-yellow-200 focus:outline-none focus:ring-2 focus:ring-yellow-200/70"
+                      aria-label={`套用${avatar.label}頭像預設`}
                     >
-                      <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                      <img src={avatar.src} alt="" className="h-full w-full object-cover" />
                     </button>
                   ))}
                 </div>
@@ -242,18 +366,123 @@ export default function Profile() {
             value={wallet.frozenAmount.toLocaleString()}
             caption="下注中保留"
           />
-          <div className="luxury-panel-soft rounded p-4">
-            <p className="gold-muted text-xs font-black uppercase tracking-[0.25em]">Check-in</p>
-            <p className="brand-title mt-2 text-2xl font-black">
-              {player?.consecutiveCheckInDays || 0} 天
-            </p>
-            <div className="mt-4 h-3 overflow-hidden rounded bg-red-950/70">
-              <div
-                className="h-full bg-yellow-200 transition-all"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <p className="gold-muted mt-2 text-xs font-bold">7 天進度獎勵</p>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setCheckInOpen((open) => !open)}
+              className="luxury-panel-soft w-full rounded p-4 text-left transition hover:border-yellow-200/40"
+              aria-expanded={checkInOpen}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="gold-muted text-xs font-black uppercase tracking-[0.25em]">Check-in</p>
+                  <p className="brand-title mt-2 text-2xl font-black">{currentConsecutiveDays} 天</p>
+                </div>
+                <span className="gold-button rounded px-2 py-1 text-xs font-black">
+                  {checkInOpen ? '收合' : '查看'}
+                </span>
+              </div>
+              <div className="mt-4 h-3 overflow-hidden rounded bg-red-950/70">
+                <div
+                  className="h-full bg-yellow-200 transition-all"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <p className="gold-muted mt-2 text-xs font-bold">
+                本月已簽到 {currentMonthSignedDates.length} 天
+              </p>
+            </button>
+
+            {checkInOpen && (
+              <section className="luxury-panel absolute right-0 top-[calc(100%+0.75rem)] z-20 w-[min(23rem,calc(100vw-2rem))] rounded p-4 shadow-2xl">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="gold-muted text-xs font-black uppercase tracking-[0.25em]">
+                      Monthly Check-in
+                    </p>
+                    <h3 className="brand-title mt-1 text-xl font-black">{monthLabel}簽到獎勵</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCheckInOpen(false)}
+                    className="red-gold-button rounded px-3 py-2 text-xs font-black"
+                  >
+                    關閉
+                  </button>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <div className="rounded border border-yellow-200/15 bg-red-950/70 p-3">
+                    <p className="gold-muted text-xs font-bold">本月天數</p>
+                    <p className="mt-1 text-2xl font-black text-yellow-100">
+                      {currentMonthSignedDates.length}
+                      <span className="ml-1 text-sm text-yellow-100/60">天</span>
+                    </p>
+                  </div>
+                  <div className="rounded border border-yellow-200/15 bg-red-950/70 p-3">
+                    <p className="gold-muted text-xs font-bold">今日可領</p>
+                    <p className="mt-1 text-2xl font-black text-yellow-100">
+                      {hasCheckedInToday ? 0 : projectedReward.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleDailyCheckIn}
+                  disabled={wallet.checkIn.loading || hasCheckedInToday}
+                  className="gold-button mt-4 w-full rounded px-4 py-3 text-sm font-black transition disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  {wallet.checkIn.loading
+                    ? '簽到中...'
+                    : hasCheckedInToday
+                      ? '今日已簽到'
+                      : `立即簽到領 ${projectedReward.toLocaleString()}`}
+                </button>
+
+                <div className="mt-4 grid grid-cols-7 gap-1">
+                  {Array.from({ length: monthDays }, (_, index) => {
+                    const day = index + 1
+                    const signed = signedDayNumbers.has(day)
+                    return (
+                      <span
+                        key={day}
+                        className={
+                          signed
+                            ? 'grid h-8 place-items-center rounded bg-yellow-200 text-xs font-black text-red-950'
+                            : 'grid h-8 place-items-center rounded border border-yellow-200/10 bg-red-950/60 text-xs font-bold text-yellow-100/54'
+                        }
+                      >
+                        {day}
+                      </span>
+                    )
+                  })}
+                </div>
+
+                <div className="mt-4 grid gap-2">
+                  {checkInMilestones.map((item) => {
+                    const reached = currentConsecutiveDays >= item.day
+                    return (
+                      <div
+                        key={item.day}
+                        className="flex items-center justify-between rounded border border-yellow-200/15 bg-red-950/70 px-3 py-2 text-sm"
+                      >
+                        <span className={reached ? 'font-black text-yellow-100' : 'font-bold text-yellow-100/62'}>
+                          連續 {item.day} 天
+                        </span>
+                        <span className="font-black text-yellow-200">+{item.bonus.toLocaleString()}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {wallet.error && (
+                  <p className="mt-3 rounded border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-200">
+                    {wallet.error}
+                  </p>
+                )}
+              </section>
+            )}
           </div>
         </aside>
       </section>

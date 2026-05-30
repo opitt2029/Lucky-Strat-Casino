@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import DecorativeAsset from '../components/DecorativeAsset'
+import CoinRain from '../components/CoinRain'
 import { loginMember, registerMember } from '../store/slices/authSlice'
 import { fetchRanks } from '../store/slices/rankSlice'
 import { fetchWallet } from '../store/slices/walletSlice'
@@ -114,6 +115,7 @@ export default function Member() {
 
   return (
     <div className="theme-background min-h-screen text-white" style={getBackgroundStyle('auth')}>
+      <CoinRain />
       <header className="mx-auto flex max-w-7xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
         <Link to="/" className="brand-title font-black tracking-tight">
           幸運星幣城

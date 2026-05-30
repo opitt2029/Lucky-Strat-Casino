@@ -10,6 +10,13 @@ const transactionLabels = {
   task: '任務',
   gift: '贈送',
 }
+const DAILY_CHECKIN_REWARD = 100
+const checkInMilestoneBonuses = {
+  7: 1000,
+  14: 2000,
+  21: 3000,
+  30: 5000,
+}
 
 const TEST_ACCOUNT = {
   password: 'test1234',
@@ -238,6 +245,10 @@ function applyWalletChange(db, playerId, amount, type, title) {
   return wallet
 }
 
+function calculateCheckInReward(days) {
+  return DAILY_CHECKIN_REWARD + (checkInMilestoneBonuses[days] || 0)
+}
+
 export function readStoredSession() {
   return readJson(SESSION_KEY, null)
 }
@@ -322,7 +333,7 @@ export const mockApi = {
     }
 
     const days = (user?.player.consecutiveCheckInDays || 0) + 1
-    const reward = 800 + Math.min(days, 7) * 100
+    const reward = calculateCheckInReward(days)
     user.player.consecutiveCheckInDays = days
     user.player.lastCheckInDate = today
     const wallet = applyWalletChange(db, playerId, reward, 'checkin', `每日簽到第 ${days} 天`)

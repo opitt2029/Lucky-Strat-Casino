@@ -49,6 +49,7 @@ a {
 }
 
 .page-transition-stage {
+  position: relative;
   min-height: 100vh;
   animation: page-enter 0.52s cubic-bezier(0.22, 1, 0.36, 1) both;
   will-change: opacity, transform, filter;
@@ -71,6 +72,44 @@ a {
   animation: link-sheen 0.72s cubic-bezier(0.2, 0.85, 0.28, 1) both;
 }
 
+.coin-rain {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+  opacity: 0.62;
+  mix-blend-mode: screen;
+}
+
+.coin-rain__coin {
+  position: absolute;
+  top: -12vh;
+  left: var(--coin-left);
+  width: var(--coin-size);
+  height: var(--coin-size);
+  border-radius: 999px;
+  border: 1px solid rgba(255, 246, 184, 0.9);
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255, 255, 230, 0.95) 0 12%, transparent 13%),
+    radial-gradient(circle at 58% 62%, rgba(255, 234, 160, 0.9) 0 28%, rgba(248, 184, 54, 0.96) 47%, rgba(152, 84, 3, 0.98) 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(101, 51, 0, 0.22),
+    0 0 14px rgba(255, 217, 94, 0.34);
+  transform: translate3d(0, -16vh, 0) rotateY(0deg);
+  animation: coin-fall var(--coin-duration) linear var(--coin-delay) infinite;
+  will-change: transform, opacity;
+}
+
+.coin-rain__coin::after {
+  content: "";
+  position: absolute;
+  inset: 24%;
+  border-radius: 999px;
+  border: 1px solid rgba(101, 51, 0, 0.34);
+  background: rgba(255, 239, 166, 0.22);
+}
+
 .theme-background,
 .theme-artwork {
   background-color: var(--theme-bg-color, #09090b);
@@ -84,6 +123,11 @@ a {
 .theme-background {
   min-height: 100vh;
   background-attachment: fixed, fixed, fixed;
+}
+
+:where(.theme-background > *:not(.coin-rain), .theme-artwork > *:not(.coin-rain), .scroll-shell > *:not(.coin-rain)) {
+  position: relative;
+  z-index: 2;
 }
 
 .scroll-sections {
@@ -279,6 +323,25 @@ a {
   }
 }
 
+@keyframes coin-fall {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -16vh, 0) rotateY(0deg) rotateZ(0deg);
+  }
+  8% {
+    opacity: var(--coin-opacity);
+  }
+  74% {
+    opacity: var(--coin-opacity);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--coin-drift), 116vh, 0)
+      rotateY(calc(var(--coin-spin) * 720deg))
+      rotateZ(220deg);
+  }
+}
+
 @keyframes section-reveal {
   from {
     opacity: 0.56;
@@ -345,7 +408,12 @@ a {
 
 @media (prefers-reduced-motion: reduce) {
   .page-transition-stage,
-  .page-transition-overlay[data-active] {
+  .page-transition-overlay[data-active],
+  .coin-rain__coin {
     animation: none;
+  }
+
+  .coin-rain {
+    opacity: 0.14;
   }
 }

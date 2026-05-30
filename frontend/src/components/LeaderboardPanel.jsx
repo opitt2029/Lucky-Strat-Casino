@@ -15,7 +15,6 @@ export default function LeaderboardPanel({ rows = fallbackRows, myNickname = '',
           <p className="gold-muted text-xs font-black uppercase tracking-[0.3em]">Realtime Rank</p>
           <h2 className="brand-title mt-1 text-xl font-black">即時排行榜</h2>
         </div>
-        <span className="rounded border border-yellow-200/20 px-3 py-1 text-xs font-black text-yellow-100/64">WS Ready</span>
       </div>
 
       <div className="mt-4 space-y-2">

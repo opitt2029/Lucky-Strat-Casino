@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSelector } from 'react-redux'
 import DecorativeAsset from '../components/DecorativeAsset'
+import CoinRain from '../components/CoinRain'
 import { gameCatalog, getBackgroundStyle } from '../theme/backgroundTheme'
 
 const sections = [
@@ -260,6 +261,7 @@ export default function Home() {
         '--scroll-red-y': `${(20 + scrollProgress * 34).toFixed(1)}%`,
       }}
     >
+      <CoinRain />
       <HomeHeader scrolled={scrollState.scrolled} progress={scrollState.progress} />
 
       <section id="intro" className="scroll-section flex items-center px-4 pt-24 sm:px-6 lg:px-8">

@@ -55,19 +55,34 @@ export default function CasinoShop() {
         <div className="luxury-panel grid gap-6 rounded p-6 sm:p-8">
           <div>
             <p className="gold-muted text-xs font-black uppercase tracking-[0.35em]">Casino Shop</p>
-            <h2 className="brand-title mt-3 text-4xl font-black tracking-tight sm:text-5xl">賭場商城</h2>
+            <h2 className="brand-title mt-3 text-4xl font-black tracking-tight sm:text-5xl">
+              賭場商城
+            </h2>
             <p className="mt-4 max-w-2xl text-base font-bold leading-8 text-yellow-100/70">
-              使用遊戲中贏得的星幣兌換禮品。禮品圖、商城主視覺與每個素材槽都集中在 theme 檔案中設定。
+              使用遊戲中贏得的星幣兌換禮品。禮品圖、商城主視覺與每個素材槽都集中在 theme
+              檔案中設定。
             </p>
           </div>
           <DecorativeAsset assetKey="shopHero" className="min-h-[320px]" />
         </div>
 
         <aside className="grid content-start gap-4">
-          <MetricCard label="可用星幣" value={balance.toLocaleString()} caption="walletSlice.balance" tone="light" />
-          <MetricCard label="凍結星幣" value={frozenAmount.toLocaleString()} caption="保留給未結算流程" />
-          <MetricCard label="商城總值" value={totalPrizeCost.toLocaleString()} caption={`${shopCatalog.length} 項禮品`} />
-          {notice && <p className="rounded border border-yellow-200/15 bg-red-950/70 px-4 py-3 text-sm font-bold text-yellow-100/74">{notice}</p>}
+          <MetricCard label="可用星幣" value={balance.toLocaleString()} tone="light" />
+          <MetricCard
+            label="凍結星幣"
+            value={frozenAmount.toLocaleString()}
+            caption="保留給未結算流程"
+          />
+          <MetricCard
+            label="商城總值"
+            value={totalPrizeCost.toLocaleString()}
+            caption={`${shopCatalog.length} 項禮品`}
+          />
+          {notice && (
+            <p className="rounded border border-yellow-200/15 bg-red-950/70 px-4 py-3 text-sm font-bold text-yellow-100/74">
+              {notice}
+            </p>
+          )}
         </aside>
       </section>
 
