@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import AppShell from '../components/AppShell'
+import GameRuleCard from '../components/GameRuleCard'
 import MetricCard from '../components/MetricCard'
 import { setBalance } from '../store/slices/walletSlice'
 import {
@@ -23,6 +24,17 @@ const suitSymbols = {
 }
 const redSuits = new Set(['heart', 'diamond'])
 const chipDenominations = [100, 200, 500, 1000, 3000, 5000, 7000, 10000]
+const baccaratRules = [
+  '先選擇閒家 Player、莊家 Banker 或和局 Tie，再輸入下注金額或使用面額快速選擇。',
+  'A 計 1 點，2 到 9 依牌面計點，10、J、Q、K 計 0 點；兩張牌總和只取個位數。',
+  '目前前端版由閒家與莊家各發兩張牌，點數高者勝出，兩邊同分為和局。',
+  '押中會依賠率計算本局獲利，未押中則損失下注金額，結果會即時反映在可用星幣。',
+]
+const baccaratPayouts = [
+  { label: '閒家 Player', value: '1x' },
+  { label: '莊家 Banker', value: '0.95x' },
+  { label: '和局 Tie', value: '8x' },
+]
 
 function formatCoins(value) {
   return Number(value || 0).toLocaleString()
@@ -100,7 +112,6 @@ function ResultItem({ label, value }) {
 
 export default function Baccarat() {
   const dispatch = useDispatch()
-  const player = useSelector((state) => state.auth.player)
   const balance = useSelector((state) => state.wallet.balance)
   const [selectedBet, setSelectedBet] = useState('')
   const [betAmount, setBetAmount] = useState('100')
@@ -120,6 +131,16 @@ export default function Baccarat() {
     selectedBet && Number.isFinite(numericBetAmount) && numericBetAmount > 0 && !isDealing
   const winnerLabel = winner ? BET_LABELS[winner] : '-'
   const selectedBetLabel = selectedBet ? BET_LABELS[selectedBet] : '尚未選擇'
+  const sidebarProfitValue =
+    roundProfit === null
+      ? '-'
+      : `${roundProfit >= 0 ? '+' : '-'}${formatCoins(Math.abs(roundProfit))}`
+  const sidebarProfitCaption =
+    roundProfit === null
+      ? '等待本局結算'
+      : roundProfit >= 0
+        ? '命中下注後的本局獲利'
+        : '未命中，扣除支付面額'
   const resultState =
     roundProfit === null
       ? 'baccarat-result-panel--empty'
@@ -347,6 +368,12 @@ export default function Baccarat() {
           </div>
 
           <aside className="baccarat-side-panel">
+            <GameRuleCard
+              title="百家樂規則"
+              subtitle="查看點數計算、勝負判定與下注賠率。"
+              rules={baccaratRules}
+              payouts={baccaratPayouts}
+            />
             <MetricCard
               label="可用星幣"
               value={formatCoins(balance)}
@@ -354,14 +381,14 @@ export default function Baccarat() {
               tone="light"
             />
             <MetricCard
-              label="目前玩家"
-              value={player?.nickname || player?.username || 'Player'}
-              caption="PrivateRoute 已限制登入後進入"
-            />
-            <MetricCard
               label="本局選項"
               value={selectedBet || '-'}
               caption={selectedBet ? BET_LABELS[selectedBet] : '尚未下注'}
+            />
+            <MetricCard
+              label="本局獲利"
+              value={sidebarProfitValue}
+              caption={sidebarProfitCaption}
             />
 
             <div className="baccarat-api-panel">

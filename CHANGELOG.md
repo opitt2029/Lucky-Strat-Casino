@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [changed] — 2026-05-31 — 調整百家樂側欄結算摘要
+
+### Changed
+- `frontend/src/pages/Baccarat.jsx`：移除 `/game/baccarat` 側邊欄的「目前玩家」區塊。
+- `frontend/src/pages/Baccarat.jsx`：在「本局選項」下方新增「本局獲利」區塊；命中時顯示正獲利，未命中時顯示負的下注面額。
+
+### Why
+- 百家樂側欄應優先呈現本局下注與結算資訊，減少與登入狀態重複的玩家資料。
+
+### How（如何驗證）
+- `npm run lint`（frontend）→ PASS。
+- `npm run build`（frontend）→ PASS（sandbox 內 esbuild 讀取 `vite.config.js` 權限失敗，升權重跑後成功）。
+
+---
+
+## [added] — 2026-05-31 — 遊戲頁側欄新增規則說明彈窗
+
+### Added
+- `frontend/src/components/GameRuleCard.jsx`：新增共用遊戲規則卡片，點擊後以紅金主題小視窗顯示規則與賠率，支援背景點擊與 Escape 關閉。
+- `frontend/src/pages/SlotGame.jsx`：在 `/game/slot` 側邊欄最上方加入星幣老虎機規則說明。
+- `frontend/src/pages/Baccarat.jsx`：在 `/game/baccarat` 側邊欄最上方加入百家樂規則說明。
+
+### Why
+- 遊戲頁需要在操作區旁提供可隨時查看的規則說明，避免玩家離開當前局面查詢下注、命中與賠率規則。
+
+### How（如何驗證）
+- `npm run lint`（frontend）→ PASS。
+- `npm run build`（frontend）→ PASS（sandbox 內 esbuild 讀取 `vite.config.js` 權限失敗，升權重跑後成功）。
+- `http://127.0.0.1:5175/game/slot`、`http://127.0.0.1:5175/game/baccarat` → dev server 回應 200；Browser 外掛在目前 Windows sandbox 初始化失敗，未能完成互動截圖驗證。
+
+---
+
 ## [changed] — 2026-05-31 — 面額選單箭頭改為 CSS 圖示
 
 ### Changed

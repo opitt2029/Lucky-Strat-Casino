@@ -1,12 +1,23 @@
 import { useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import AppShell from '../components/AppShell'
+import GameRuleCard from '../components/GameRuleCard'
 import MetricCard from '../components/MetricCard'
 import SlotMachine from '../components/SlotMachine'
 import { spinSlot } from '../store/slices/gameSlice'
 import { setBalance } from '../store/slices/walletSlice'
 
 const betOptions = [100, 500, 1000, 'MAX']
+const slotRules = [
+  '先在下注面板選擇 100、500、1,000 或 MAX；MAX 會以可用星幣與單局上限 5,000 計算。',
+  '按下 SPIN 後會先扣除本局下注，轉輪由左至右停止並顯示結果。',
+  '中央橫線三格出現相同符號即為中線命中，派彩會回填到可用星幣。',
+  '未命中中線時本局下注不返還；星幣不足時無法開始下一局。',
+]
+const slotPayouts = [
+  { label: '中線命中', value: '2x / 3x / 5x / 8x' },
+  { label: '單局下注上限', value: '5,000 星幣' },
+]
 
 export default function SlotGame() {
   const dispatch = useDispatch()
@@ -39,6 +50,12 @@ export default function SlotGame() {
         <SlotMachine grid={slotGrid} winningCells={winningCells} spinning={loading} onSpin={handleSpinRound} />
 
         <aside className="grid gap-4 content-start">
+          <GameRuleCard
+            title="星幣老虎機規則"
+            subtitle="查看下注、命中線與倍率派彩。"
+            rules={slotRules}
+            payouts={slotPayouts}
+          />
           <MetricCard label="可用星幣" value={balance.toLocaleString()} caption="下注後即時更新" tone="light" />
           <MetricCard label="本局下注" value={resolvedBet.toLocaleString()} caption="最高單局 5,000" />
           <MetricCard
