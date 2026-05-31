@@ -5,6 +5,86 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [changed] — 2026-05-31 — 面額選單箭頭改為 CSS 圖示
+
+### Changed
+- `frontend/src/pages/Baccarat.jsx`：移除百家樂面額按鈕中的文字箭頭。
+- `frontend/src/index.css`：改用 `baccarat-amount-toggle::after` 繪製 chevron 圖示，並在展開時旋轉。
+
+### Why
+- 面額按鈕上的文字箭頭看起來像 `v` 字元；改為 CSS 圖示可維持一致的紅金 UI 質感。
+
+### How（如何驗證）
+- `npm run lint`（frontend）→ PASS。
+- `npm run build`（frontend）→ PASS（sandbox 內 esbuild 讀取 `vite.config.js` 權限失敗，升權重跑後成功）。
+
+---
+
+## [changed] — 2026-05-31 — 百家樂下注金額改為自製面額選單
+
+### Changed
+- `frontend/src/pages/Baccarat.jsx`：下注金額保留自訂輸入，新增非原生 select 的面額選單，提供 100、200、500、1000、3000、5000、7000、10000 快速選擇。
+- `frontend/src/index.css`：新增 `baccarat-amount-*` 樣式，讓面額選單、切換按鈕與選中狀態符合紅金 VIP 牌桌風格。
+
+### Why
+- 原本純輸入框操作較慢；改為自訂金額搭配常用面額按鈕，可保留樣式掌控並提升下注效率。
+
+### How（如何驗證）
+- `npm run lint`（frontend）→ PASS。
+- `npm run build`（frontend）→ PASS（sandbox 內 esbuild 讀取 `vite.config.js` 權限失敗，升權重跑後成功）。
+
+---
+
+## [changed] — 2026-05-31 — 放大百家樂下注與結算區
+
+### Changed
+- `frontend/src/index.css`：將 `/game/baccarat` 牌桌內的下注區與本局結算改為上下獨立橫列，放大面板、選項按鈕與內距。
+- `frontend/src/index.css`：移除百家樂結算欄位文字的 ellipsis 截斷，改為自然換行，避免長文字顯示成 `...`。
+
+### Why
+- 百家樂下注區與本局結算同列時資訊較擁擠，部分文字會被截斷；改成獨立列後更適合掃讀與操作。
+
+### How（如何驗證）
+- `npm run lint`（frontend）→ PASS。
+- `npm run build`（frontend）→ PASS（sandbox 內 esbuild 讀取 `vite.config.js` 權限失敗，升權重跑後成功）。
+
+---
+
+## [changed] — 2026-05-31 — 百家樂頁面改為 VIP 賭桌視覺
+
+### Changed
+- `frontend/src/pages/Baccarat.jsx`：將 `/game/baccarat` 版面重整為 `baccarat-*` 語意區塊，包含遊戲標題、Player / Banker 對戰牌桌、下注面板、結算面板與右側狀態欄。
+- `frontend/src/index.css`：新增百家樂專屬樣式，包含暗紅絨布桌面、深色玻璃牌區、象牙白撲克牌、金色選中 / hover / winner glow、結算面板狀態色與 RWD 斷點。
+
+### Why
+- 百家樂頁面需要更貼近 Lucky Star Casino 既有紅金暗色主題，並呈現高級賭城內百家樂桌面的視覺層級。
+
+### How（如何驗證）
+- `npm run lint`（frontend）→ PASS。
+- `npm run build`（frontend）→ PASS（sandbox 內 esbuild 讀取 `vite.config.js` 權限失敗，升權重跑後成功）。
+- `http://127.0.0.1:5173/game/baccarat` → dev server 回應 200；Browser 外掛在目前 Windows sandbox 初始化失敗，未能完成互動截圖驗證。
+
+---
+
+## [feat] — 2026-05-31 — 新增前端百家樂遊戲頁互動流程
+
+### Added
+- `frontend/src/utils/baccaratGame.js`：新增百家樂前端模擬 helper，包含 `createDeck()`、`drawCard()`、`calculateBaccaratScore()`、`determineWinner()`、`calculatePayout()` 與下注倍率設定。
+
+### Changed
+- `frontend/src/pages/Baccarat.jsx`：重做 `/game/baccarat` 頁面，加入 Player / Banker / Tie 下注選擇、下注金額輸入、兩張牌簡化發牌、點數與勝方計算、命中派彩 / 未命中損失顯示。
+- `frontend/src/pages/Baccarat.jsx`：沿用既有 `AppShell`、`MetricCard`、紅金暗色系樣式與 PrivateRoute；保留未來 `POST /api/game/baccarat/play` 與 wallet-service 扣款 / 派彩 TODO。
+
+### Why
+- 既有百家樂頁面只有點下注區即開局的簡化桌面互動，缺少本次需求指定的下注驗證、發牌按鈕、結果明細與後端串接預留契約。
+
+### How（如何驗證）
+- `npm run lint`（frontend）→ PASS。
+- `npm run build`（frontend）→ PASS（sandbox 內 esbuild 讀取 `vite.config.js` 權限失敗，升權重跑後成功）。
+- `http://127.0.0.1:5173/game/baccarat` → dev server 回應 200；Browser 外掛在目前 Windows sandbox 初始化失敗，未能完成互動截圖驗證。
+
+---
+
 ## [changed] — 2026-05-31 — Slot 轉輪改為 requestAnimationFrame 精準停輪
 
 ### Changed

@@ -1,72 +1,380 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import AppShell from '../components/AppShell'
-import BaccaratTable from '../components/BaccaratTable'
 import MetricCard from '../components/MetricCard'
-import { betBaccarat } from '../store/slices/gameSlice'
 import { setBalance } from '../store/slices/walletSlice'
+import {
+  BET_LABELS,
+  BET_ODDS,
+  BET_TYPES,
+  calculateBaccaratScore,
+  calculatePayout,
+  createDeck,
+  determineWinner,
+  drawCard,
+} from '../utils/baccaratGame'
 
-const chipOptions = [100, 500, 1000]
+const initialCards = []
+const suitSymbols = {
+  spade: '♠',
+  heart: '♥',
+  diamond: '♦',
+  club: '♣',
+}
+const redSuits = new Set(['heart', 'diamond'])
+const chipDenominations = [100, 200, 500, 1000, 3000, 5000, 7000, 10000]
+
+function formatCoins(value) {
+  return Number(value || 0).toLocaleString()
+}
+
+function CardView({ card, index, isDealing }) {
+  const isRed = card && redSuits.has(card.suit)
+
+  return (
+    <div
+      className={[
+        'baccarat-card',
+        card ? 'baccarat-card--face' : 'baccarat-card--back',
+        isRed ? 'baccarat-card--red' : 'baccarat-card--black',
+        isDealing || card ? 'baccarat-card--dealt' : '',
+      ].join(' ')}
+      style={{ animationDelay: `${index * 90}ms` }}
+    >
+      {card ? (
+        <>
+          <span className="baccarat-card__corner baccarat-card__corner--top">{card.rank}</span>
+          <span className="baccarat-card__suit">{suitSymbols[card.suit]}</span>
+          <span className="baccarat-card__corner baccarat-card__corner--bottom">{card.rank}</span>
+        </>
+      ) : (
+        <span className="baccarat-card__back-mark">LS</span>
+      )}
+    </div>
+  )
+}
+
+function HandPanel({ title, score, cards, isDealing, winner, winnerKey }) {
+  const isWinner = winner === winnerKey
+  const visibleCards = cards.length ? cards : [null, null]
+
+  return (
+    <section
+      className={[
+        'baccarat-hand',
+        isWinner ? 'baccarat-hand--winner' : winner ? 'baccarat-hand--dimmed' : '',
+      ].join(' ')}
+    >
+      <div className="baccarat-hand__header">
+        <div>
+          <p className="baccarat-hand__eyebrow">{title}</p>
+          <h3 className="baccarat-hand__title">{title === 'Player' ? '閒家' : '莊家'}</h3>
+        </div>
+        <div className="baccarat-score">
+          <span>Score</span>
+          <strong>{score === null ? '-' : score}</strong>
+        </div>
+      </div>
+      <div className="baccarat-cards">
+        {visibleCards.map((card, index) => (
+          <CardView
+            key={card ? `${card.suit}-${card.rank}-${index}` : `empty-${index}`}
+            card={card}
+            index={index}
+            isDealing={isDealing}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ResultItem({ label, value }) {
+  return (
+    <div className="baccarat-result-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
+}
 
 export default function Baccarat() {
   const dispatch = useDispatch()
-  const [selectedAmount, setSelectedAmount] = useState(100)
-  const [bets, setBets] = useState({})
+  const player = useSelector((state) => state.auth.player)
   const balance = useSelector((state) => state.wallet.balance)
-  const { result, baccaratRound, loading, error } = useSelector((state) => state.game)
+  const [selectedBet, setSelectedBet] = useState('')
+  const [betAmount, setBetAmount] = useState('100')
+  const [playerCards, setPlayerCards] = useState(initialCards)
+  const [bankerCards, setBankerCards] = useState(initialCards)
+  const [playerScore, setPlayerScore] = useState(null)
+  const [bankerScore, setBankerScore] = useState(null)
+  const [winner, setWinner] = useState('')
+  const [resultMessage, setResultMessage] = useState('')
+  const [isDealing, setIsDealing] = useState(false)
+  const [isAmountMenuOpen, setIsAmountMenuOpen] = useState(false)
+  const [roundProfit, setRoundProfit] = useState(null)
+  const [roundBet, setRoundBet] = useState(null)
 
-  const handleBet = async (area) => {
-    try {
-      const round = await dispatch(betBaccarat({ area, amount: selectedAmount })).unwrap()
-      setBets((current) => ({ ...current, [area]: (current[area] || 0) + selectedAmount }))
-      dispatch(setBalance(round.wallet))
-    } catch {
-      // gameSlice already exposes the message in state.error
+  const numericBetAmount = useMemo(() => Number(betAmount), [betAmount])
+  const canDeal =
+    selectedBet && Number.isFinite(numericBetAmount) && numericBetAmount > 0 && !isDealing
+  const winnerLabel = winner ? BET_LABELS[winner] : '-'
+  const selectedBetLabel = selectedBet ? BET_LABELS[selectedBet] : '尚未選擇'
+  const resultState =
+    roundProfit === null
+      ? 'baccarat-result-panel--empty'
+      : roundProfit >= 0
+        ? winner === 'Tie'
+          ? 'baccarat-result-panel--tie'
+          : 'baccarat-result-panel--win'
+        : 'baccarat-result-panel--loss'
+
+  const handleDeal = () => {
+    if (!selectedBet) {
+      setResultMessage('請先選擇下注項目。')
+      setRoundProfit(null)
+      return
     }
+
+    if (!Number.isFinite(numericBetAmount) || numericBetAmount <= 0) {
+      setResultMessage('下注金額必須大於 0。')
+      setRoundProfit(null)
+      return
+    }
+
+    setIsDealing(true)
+    setResultMessage('發牌中...')
+    setWinner('')
+    setRoundProfit(null)
+    setPlayerCards([])
+    setBankerCards([])
+    setPlayerScore(null)
+    setBankerScore(null)
+
+    window.setTimeout(() => {
+      const deck = createDeck()
+      const nextPlayerCards = [drawCard(deck), drawCard(deck)]
+      const nextBankerCards = [drawCard(deck), drawCard(deck)]
+      const nextPlayerScore = calculateBaccaratScore(nextPlayerCards)
+      const nextBankerScore = calculateBaccaratScore(nextBankerCards)
+      const nextWinner = determineWinner(nextPlayerScore, nextBankerScore)
+      const profit = calculatePayout(selectedBet, nextWinner, numericBetAmount)
+      const hit = profit >= 0
+
+      // TODO: 未來改為呼叫 POST /api/game/baccarat/play，request body: { userId, betType, betAmount }。
+      // TODO: 後端 response 預計回傳 playerCards、bankerCards、playerScore、bankerScore、winner、payout、balance，再用 wallet-service 完成實際扣款與派彩。
+      setPlayerCards(nextPlayerCards)
+      setBankerCards(nextBankerCards)
+      setPlayerScore(nextPlayerScore)
+      setBankerScore(nextBankerScore)
+      setWinner(nextWinner)
+      setRoundProfit(profit)
+      setRoundBet({ selectedBet, amount: numericBetAmount })
+      setResultMessage(
+        hit
+          ? `命中 ${BET_LABELS[nextWinner]}，本局獲利 ${formatCoins(profit)} 星幣。`
+          : `${BET_LABELS[nextWinner]} 勝出，未命中下注，損失 ${formatCoins(numericBetAmount)} 星幣。`
+      )
+      dispatch(
+        setBalance({
+          balance: Math.max(balance + profit, 0),
+        })
+      )
+      setIsDealing(false)
+    }, 720)
+  }
+
+  const handleSelectAmount = (amount) => {
+    setBetAmount(String(amount))
+    setIsAmountMenuOpen(false)
   }
 
   return (
     <AppShell>
-      <section className="grid gap-4 lg:grid-cols-[1fr_320px]">
-        <BaccaratTable onBet={handleBet} bets={bets} round={baccaratRound} loading={loading} />
+      <section className="baccarat-page">
+        <div className="baccarat-main-grid">
+          <div className="baccarat-table">
+            <header className="baccarat-hero">
+              <p className="baccarat-hero__eyebrow">VIP Table Game</p>
+              <h2 className="baccarat-hero__title">Baccarat</h2>
+              <p className="baccarat-hero__subtitle">選擇 Player、Banker 或 Tie，下注後開始發牌</p>
+            </header>
 
-        <aside className="grid gap-4 content-start">
-          <MetricCard label="牌桌限紅" value="100 / 50K" caption="可由 table API 回填" tone="light" />
-          <MetricCard
-            label="本局結果"
-            value={result?.game === 'baccarat' ? result.winner : '-'}
-            caption={result?.game === 'baccarat' ? `派彩 ${result.payout}` : '等待開牌'}
-          />
-          <div className="luxury-panel-soft rounded p-4">
-            <p className="gold-muted text-xs font-black uppercase tracking-[0.25em]">Chips</p>
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              {chipOptions.map((amount) => (
-                <button
-                  key={amount}
-                  type="button"
-                  onClick={() => setSelectedAmount(amount)}
-                  className={[
-                    'min-h-12 rounded border text-sm font-black transition',
-                    selectedAmount === amount
-                      ? 'gold-button'
-                      : 'border-yellow-200/15 bg-red-950/70 text-yellow-100/68 hover:border-yellow-200/60 hover:text-yellow-100',
-                  ].join(' ')}
-                >
-                  {amount}
-                </button>
-              ))}
+            <div className="baccarat-table-felt">
+              <div className="baccarat-duel-grid">
+                <HandPanel
+                  title="Player"
+                  score={playerScore}
+                  cards={playerCards}
+                  isDealing={isDealing}
+                  winner={winner}
+                  winnerKey="Player"
+                />
+
+                <div className="baccarat-vs-medallion" aria-hidden="true">
+                  <span>VS</span>
+                  <small>Tie pays 8:1</small>
+                </div>
+
+                <HandPanel
+                  title="Banker"
+                  score={bankerScore}
+                  cards={bankerCards}
+                  isDealing={isDealing}
+                  winner={winner}
+                  winnerKey="Banker"
+                />
+              </div>
+
+              <div className="baccarat-control-grid">
+                <section className="baccarat-bet-panel">
+                  <div className="baccarat-panel-heading">
+                    <p>Bet Control</p>
+                    <h3>下注區</h3>
+                  </div>
+
+                  <div className="baccarat-bet-options">
+                    {BET_TYPES.map((betType) => (
+                      <button
+                        key={betType}
+                        type="button"
+                        onClick={() => setSelectedBet(betType)}
+                        disabled={isDealing}
+                        className={[
+                          'baccarat-bet-option',
+                          selectedBet === betType ? 'baccarat-bet-option--selected' : '',
+                        ].join(' ')}
+                      >
+                        <span>Odds {BET_ODDS[betType]}x</span>
+                        <strong>{BET_LABELS[betType]}</strong>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="baccarat-wager-row">
+                    <label className="baccarat-field">
+                      <span>下注金額</span>
+                      <div className="baccarat-amount-picker">
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={betAmount}
+                          onChange={(event) => setBetAmount(event.target.value)}
+                          disabled={isDealing}
+                          className="baccarat-bet-input"
+                          placeholder="自訂金額"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setIsAmountMenuOpen((open) => !open)}
+                          disabled={isDealing}
+                          className="baccarat-amount-toggle"
+                          aria-expanded={isAmountMenuOpen}
+                        >
+                          面額
+                        </button>
+                        {isAmountMenuOpen && (
+                          <div className="baccarat-amount-menu">
+                            {chipDenominations.map((amount) => (
+                              <button
+                                key={amount}
+                                type="button"
+                                onClick={() => handleSelectAmount(amount)}
+                                className={[
+                                  'baccarat-amount-option',
+                                  Number(betAmount) === amount
+                                    ? 'baccarat-amount-option--selected'
+                                    : '',
+                                ].join(' ')}
+                              >
+                                {formatCoins(amount)}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleDeal}
+                      disabled={!canDeal}
+                      className="baccarat-action-button"
+                    >
+                      {isDealing ? '發牌中...' : '開始發牌'}
+                    </button>
+                  </div>
+                </section>
+
+                <section className={['baccarat-result-panel', resultState].join(' ')}>
+                  <div className="baccarat-panel-heading">
+                    <p>Settlement</p>
+                    <h3>本局結算</h3>
+                  </div>
+                  <p className="baccarat-result-message">{resultMessage || '等待下注與發牌。'}</p>
+                  <div className="baccarat-result-grid">
+                    <ResultItem label="勝方" value={winnerLabel} />
+                    <ResultItem
+                      label="下注項目"
+                      value={roundBet ? BET_LABELS[roundBet.selectedBet] : selectedBetLabel}
+                    />
+                    <ResultItem
+                      label="下注金額"
+                      value={
+                        roundBet ? formatCoins(roundBet.amount) : formatCoins(numericBetAmount)
+                      }
+                    />
+                    <ResultItem
+                      label="獲利或損失"
+                      value={
+                        roundProfit === null
+                          ? '-'
+                          : `${roundProfit >= 0 ? '+' : '-'}${formatCoins(Math.abs(roundProfit))}`
+                      }
+                    />
+                    <ResultItem
+                      label="Player 點數"
+                      value={playerScore === null ? '-' : playerScore}
+                    />
+                    <ResultItem
+                      label="Banker 點數"
+                      value={bankerScore === null ? '-' : bankerScore}
+                    />
+                  </div>
+                </section>
+              </div>
             </div>
           </div>
-          {error && <p className="rounded border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-200">{error}</p>}
-          <button
-            type="button"
-            onClick={() => setBets({})}
-            className="red-gold-button rounded px-5 py-4 text-sm font-black transition"
-          >
-            清空桌面籌碼
-          </button>
-          <MetricCard label="可用星幣" value={balance.toLocaleString()} caption="下注後即時更新" />
-        </aside>
+
+          <aside className="baccarat-side-panel">
+            <MetricCard
+              label="可用星幣"
+              value={formatCoins(balance)}
+              caption="目前以前端模擬結果更新"
+              tone="light"
+            />
+            <MetricCard
+              label="目前玩家"
+              value={player?.nickname || player?.username || 'Player'}
+              caption="PrivateRoute 已限制登入後進入"
+            />
+            <MetricCard
+              label="本局選項"
+              value={selectedBet || '-'}
+              caption={selectedBet ? BET_LABELS[selectedBet] : '尚未下注'}
+            />
+
+            <div className="baccarat-api-panel">
+              <p>API Placeholder</p>
+              <h3>後端串接預留</h3>
+              <div>
+                <span>POST /api/game/baccarat/play</span>
+                <span>Request: userId、betType、betAmount</span>
+                <span>Response: cards、score、winner、payout、balance</span>
+              </div>
+            </div>
+          </aside>
+        </div>
       </section>
     </AppShell>
   )
