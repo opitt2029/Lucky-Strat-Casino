@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [changed] — 2026-05-30 — Slot 遊戲畫面與 spin 動畫精修
+
+### Changed
+- `frontend/src/components/SlotMachinePreview.jsx`：將原本 3x3 靜態格子改為三欄式轉輪機台，新增跑馬燈、玻璃反光、中線 payline、逐欄滾動與停輪回彈狀態。
+- `frontend/src/index.css`：新增 slot machine 專用樣式、轉輪滾動、燈泡追光、停輪落點、命中高亮與 reduced-motion fallback。
+- `frontend/src/index.css`：固定 slot 轉輪視窗高度並將 spin 用長轉輪 strip 改為絕對定位，避免 spin 時撐高畫面；平常狀態即使用加高後高度。
+- `frontend/src/components/SlotMachinePreview.jsx`、`frontend/src/index.css`：調整 spin 轉輪週期、blur、抖動幅度與停輪 easing，讓轉動和煞停更絲滑。
+- `frontend/src/components/SlotMachinePreview.jsx`、`frontend/src/index.css`：新增左到右逐欄煞停狀態，最終 symbol 會在同一條煞停 strip 中滑入定位，避免轉到一半直接彈出結果。
+- `frontend/src/components/SlotMachinePreview.jsx`、`frontend/src/index.css`：移除移動中轉輪的 filter/blur 動畫與抖動，改用純 `transform` 合成層動畫，降低掉幀感並提升 spin smoothness。
+- `frontend/src/components/SlotMachinePreview.jsx`、`frontend/src/index.css`：放大 slot 主機台，新增實體老虎機常見的 jackpot 燈箱、厚框轉輪窗、下方控制台、大型 SPIN 按鈕與拉桿造型。
+- `frontend/src/pages/SlotGame.jsx`：重整 slot 頁面資訊層級，新增上方狀態指標與右側下注/回合面板，spin 按鈕會顯示本局下注金額與餘額不足狀態。
+- `frontend/src/pages/SlotGame.jsx`：將遊戲資訊卡移到右側欄，讓主 slot 機台在第一視覺佔更大比例。
+- `frontend/src/pages/SlotGame.jsx`：移除側邊欄 SPIN 按鈕，slot 遊戲只保留機台控制台內的主要 SPIN 按鈕。
+- `frontend/src/pages/SlotGame.jsx`：調整側邊欄「最近派彩」說明文字，不再顯示 `5x / SLOT-...` 這類 round id 技術字串，改顯示中獎倍率或未中獎狀態。
+- `frontend/src/pages/SlotGame.jsx`、`frontend/src/index.css`：將 Round 面板中的狀態值改為燈號樣式，依 spinning/result/win/idle 顯示不同亮度與顏色。
+- `frontend/src/pages/SlotGame.jsx`：spin 視覺煞停期間維持按鈕鎖定，避免 API 回應後動畫尚未結束時重複觸發。
+- `frontend/src/services/mockApi.js`：降低前端 mock slot 強制中線命中率，由原本約 48% 調整為 18%，加上自然湊線後約落在兩成上下。
+
+### Why
+- 使用者希望 slot 遊戲畫面更精緻，且 spin 時動畫更接近真實老虎機轉輪，而不是單純格子跳動。
+
+### How（如何驗證）
+- `npm run lint`（frontend）→ PASS（無 ESLint warnings）。
+- `npm run build`（frontend）→ PASS。
+- 已啟動本機 Vite dev server 並確認 `http://127.0.0.1:5173` 回應 200；Browser 外掛在目前 Windows sandbox 連線失敗，未能完成瀏覽器截圖驗證。
+
+---
+
 ## [added] — 2026-05-30 — 全站新增金幣雨背景特效
 
 ### Added

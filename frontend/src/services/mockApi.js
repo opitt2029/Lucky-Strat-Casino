@@ -2,6 +2,7 @@ const DB_KEY = 'lucky-star-mock-db-v1'
 const SESSION_KEY = 'lucky-star-session-v1'
 
 const slotSymbols = ['7', 'BAR', 'STAR', 'CHIP', 'A', 'K']
+const MOCK_SLOT_FORCED_WIN_RATE = 0.18
 const baccaratValues = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 const transactionLabels = {
   bet: '下注',
@@ -371,7 +372,7 @@ export const mockApi = {
     applyWalletChange(db, playerId, -bet, 'bet', '老虎機下注')
     const grid = randomSlotGrid()
     const centerSymbol = grid[1][0]
-    const isWin = grid[1].every((symbol) => symbol === centerSymbol) || Math.random() > 0.52
+    const isWin = grid[1].every((symbol) => symbol === centerSymbol) || Math.random() < MOCK_SLOT_FORCED_WIN_RATE
     if (isWin) grid[1] = [centerSymbol, centerSymbol, centerSymbol]
 
     const multiplier = isWin ? [2, 3, 5, 8][Math.floor(Math.random() * 4)] : 0
