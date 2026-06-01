@@ -5,6 +5,138 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [feat] — 2026-06-01 — Kafka 消費失敗 Dead Letter Queue 處理（T-028）
+
+### Added
+- `database/postgres/migration/V3__create_dead_letter_messages.sql`（新增，原 V2 已被 T-100 佔用故改 V3）：`dead_letter_messages` 表（寫於 PostgreSQL 寫庫），欄位含 `dlt_topic`/`original_topic`/`message_key`/`payload`/`exception_class`/`failure_reason`/`stack_trace`/`status`/`retry_count`/`created_at`/`last_retried_at`，`chk_dlm_status` 限 FAILED/RETRIED/RESOLVED，並建 status/dlt_topic/created_at 索引。
+- `database/postgres/init.sql`（新增 dead_letter_messages 定義）：補齊一鍵建表所需的 schema 定義，與 V3 migration 保持一致。
+- `postgres/entity/DeadLetterMessage.java` + `postgres/repository/DeadLetterMessageRepository.java`（新增）：DLT 失敗訊息實體與查詢（`findByStatus`/`findByDltTopic`/`findByStatusAndDltTopic` 分頁）。
+- `kafka/DeadLetterListener.java`（新增）：消費 `wallet.credit.DLT`、`wallet.debit.DLT` 與 `wallet.credit.request.DLT`（入帳指令失敗），自 DLT header（`DLT_ORIGINAL_TOPIC`/`DLT_EXCEPTION_FQCN`/`DLT_EXCEPTION_MESSAGE`/`DLT_EXCEPTION_STACKTRACE`）取出原始 topic 與失敗原因落庫。**try/finally 保證永遠 ack、永不重拋**（避免 `.DLT.DLT` 連鎖或卡 partition），使用獨立 groupId `wallet-service-dlt-group`。
+- `config/KafkaConsumerConfig.java`（修改，append）：新增 `dltListenerContainerFactory` @Bean，**刻意不掛 `kafkaErrorHandler`**（DLT 是最後一站，不可再路由）。方法名唯一以符 Spring Boot 3.2+ `enforceUniqueMethods`。
+- `service/DeadLetterService.java`（新增）：`record`（落庫，內部吞例外不外拋、堆疊截斷 4000 字）、`query`（依 status/dltTopic 過濾分頁）、`retry`（把原 payload 重發回 `original_topic`，標記 RETRIED、累加 retry_count；下游 listener 冪等故重送安全）。
+- `controller/AdminDeadLetterController.java`（新增）：`GET /internal/wallet/dlt`（狀態/topic 過濾分頁查詢）、`POST /internal/wallet/dlt/{id}/retry`（手動重試）。掛在 `/internal/wallet/**` 沿用既有 `InternalSecretFilter`。
+- `dto/DeadLetterMessageResponse.java`、`dto/DeadLetterRetryResponse.java`（新增）。
+- `exception/DeadLetterNotFoundException.java`（→404）、`exception/IllegalDltStateException.java`（→409，已 RESOLVED 不可重試），並在 `GlobalExceptionHandler` 註冊。
+- 測試（新增）：`service/DeadLetterServiceTest.java`（9 案）、`kafka/DeadLetterListenerTest.java`（4 案，含 credit.request.DLT）。
+
+### Why
+- 完成 T-028（工作分配表規格：設定 `wallet.credit.DLT`/`wallet.debit.DLT`、消費失敗超過 3 次轉入 DLT、Admin 可查詢並手動重試、記錄失敗原因至 DB）。額外納入既有的 `wallet.credit.request.DLT`（入帳指令失敗）一併監控，避免指令類失敗無人看管。
+- DLT「重試 3 次後路由」基建在前置任務的 `KafkaConsumerConfig`（`DefaultErrorHandler` + `DeadLetterPublishingRecoverer`）已存在，且 DLT topic 已於 `kafka/kafka-init.sh` 建立；本任務只補「DLT consumer 落庫 + Admin 查詢/重試 API」，**未增刪 Kafka topic，故 `tests/infra/kafka.test.js` 無需更動**（AGENTS.md §2.7）。
+- 手動重試靠下游冪等保安全：`WalletReadSyncListener` 以 `existsById` 去重、`WalletService.credit/debit` 以 `idempotency_key` UNIQUE 去重（AGENTS.md §2.8），重發原 payload 不會重複入帳。
+
+### 如何驗證
+- `mvn -pl backend/wallet-service test`：**97 passed / 0 failed**（含 13 個新案；`contextLoads` 確認 H2 建表與三個 DLT consumer 掛載成功）。
+
+---
+
+## [feat] — 2026-06-01 — 破產補助機制 API（T-027）
+
+### Added
+- `backend/wallet-service/.../controller/WalletController.java`：新增 `POST /api/v1/wallet/bankruptcy-aid`。領取者取自 gateway 注入的 `X-User-Id` header（只能領自己的），**無 request body**。
+- `dto/BankruptcyAidResponse.java`（新增）：回應 DTO（`playerId`/`amount`/`transactionId`/`balanceBefore`/`balanceAfter`）。
+- `service/BankruptcyAidService.java`（新增，協調器）：
+  - **資格檢查**：以 `WalletService.getBalance` 取餘額，**總餘額**（非可用餘額）須 **< 100** 星幣才符資格，否則拋 `BankruptcyAidNotEligibleException` → 422；錢包不存在 → 404（沿用 `WalletNotFoundException`）。**用總餘額是刻意決策**：防止玩家把錢凍結在未結算下注上壓低可用餘額來套利，且「總身家枯竭」才是真破產（與規格字面一致）。
+  - **Redis 當日鎖（原子 SETNX+TTL）**：`SET wallet:bankruptcy-aid:{playerId}:{date} 1 NX PX(到午夜)` 單一指令搶當日領取權並一併設 TTL（到當地 Asia/Taipei 下一個午夜），搶不到代表今天已領過 → 422。SETNX 與 TTL 一次完成，避免兩步之間程序被硬殺導致鎖殘留卻無 TTL（玩家當天再也領不了）。
+  - **入帳**：委派 `WalletService.credit` 加 **1,000** 星幣，subType=`BANKRUPTCY_AID`，冪等鍵 `bankruptcy-aid:{playerId}:{date}`（DB UNIQUE 為第二道防線：Redis 即使被清空，同日仍不會重複入帳）。入帳失敗會 `DELETE` Redis 鎖讓玩家可重試。
+  - **冪等命中保護**：若 `credit` 回 `idempotent=true`（Redis 曾被清空、DB 已有當日紀錄），視為今天已領過 → 422，不重複加錢、保留鎖。
+- `exception/BankruptcyAidNotEligibleException.java`（→422，新增），並在 `GlobalExceptionHandler` 註冊。
+- 測試（新增）：`service/BankruptcyAidServiceTest.java`（6 案：符資格發放+設 TTL、餘額達門檻不符、當日已領 SETNX 失敗、入帳失敗釋放鎖、冪等命中視為已領且保留鎖、錢包不存在傳遞）；`controller/WalletControllerTest.java` 新增 4 案（發放 200、缺 header 400、不符資格 422、錢包不存在 404）。
+
+### Why
+- 完成 T-027（工作分配表規格：`POST /api/v1/wallet/bankruptcy-aid`、餘額 < 100 且當日未領過、發放 1,000 星幣、用 Redis 記當日已領狀態、TTL 到午夜）。
+- 沿用既有帳務模式：複用 `WalletService.credit`（冪等鍵 DB UNIQUE 防重、`@Version` 樂觀鎖防超扣，AGENTS.md §2.8）；schema 既有的 `chk_wt_sub_type` 已包含 `BANKRUPTCY_AID`，無需改 DB。
+- Redis SETNX 提供「每日一次」的快路徑保護，`credit` 的 idempotencyKey 為 Redis 失效時的第二道防線（即使 Redis 被清空也不會重複發放）。
+
+### 如何驗證
+- `mvn -pl backend/wallet-service test`：**84 passed / 0 failed**（含 6 個新 service 案、4 個新 controller 案，`contextLoads` 仍綠）。
+
+### 已知限制
+- Redis 鎖在「JVM 於 SETNX 成功後、入帳 commit 前被硬殺」時可能殘留（玩家當日無法重領）；但鎖建立時已原子帶上午夜 TTL（必定會自動歸零），且 `credit` 冪等鍵保證不會重複發放。
+
+---
+
+## [feat] — 2026-06-01 — 好友星幣贈送 API（T-026）
+
+### Added
+- `backend/wallet-service/.../controller/WalletController.java`：新增 `POST /api/v1/wallet/gift`。贈送方取自 gateway 注入的 `X-User-Id` header（**不**由 body 指定，避免冒名贈送他人的錢）；body 帶 `receiverId`/`amount`/`idempotencyKey`。
+- `dto/GiftRequest.java`、`dto/GiftResponse.java`（新增）：請求/回應 DTO（`idempotencyKey` 上限 80 字，預留衍生後綴空間）。
+- `service/GiftService.java`（新增，協調器）：
+  - **基本驗證**：不可贈送給自己（`InvalidGiftException` → 400）。
+  - **冪等預檢**：以贈送方分錄 key（`<key>:gift:debit`）查流水，已存在即直接回原結果、**完全不碰 Redis**（重送不會灌爆當日額度）。
+  - **Redis 當日額度預扣**：贈出上限 **5,000**、收受上限 **10,000**（`wallet:gift:sent:{senderId}:{date}` / `wallet:gift:recv:{receiverId}:{date}`，`INCRBY` 後檢查，超限 `DECRBY` 回補並拋 `GiftLimitExceededException` → 422）；鍵 TTL 設到當地（Asia/Taipei）下一個午夜。
+  - **best-effort 下游**：轉帳 commit 後寫 `gift_logs`、發 `wallet.debit`/`wallet.credit` 事件；失敗只記 WARN，不回滾金流。
+- `service/GiftTransferService.java`（新增）：PostgreSQL **單一交易**內的雙向分錄（DEBIT/GIFT + CREDIT/GIFT），餘額守衛、樂觀鎖（`@Version`）、雙冪等鍵。獨立成 bean 以讓 `@Transactional(postgresTransactionManager)` proxy 生效。
+- `service/GiftLogService.java`（新增）：`gift_logs` 稽核寫入，走 `@Transactional(mysqlTransactionManager)`。
+- `mysql/entity/GiftLog.java`、`mysql/repository/GiftLogRepository.java`（新增）：對應既有 `gift_logs` 讀庫表。
+- `exception/GiftLimitExceededException.java`（→422）、`exception/InvalidGiftException.java`（→400）（新增），並在 `GlobalExceptionHandler` 註冊。
+- 測試（新增）：`service/GiftServiceTest.java`（10 案：成功、贈己、冪等重送、贈出/收受超限回補、餘額不足/錢包不存在回補、並發 UNIQUE 衝突回補+冪等、gift_logs 失敗不影響、Kafka 失敗不影響）、`service/GiftTransferServiceTest.java`（4 案：雙向異動與兩筆分錄、餘額不足、雙方錢包不存在）。
+
+### Changed
+- `kafka/WalletDebitEvent.java`：**新增 `subType` 欄位**（Kafka 契約變更）。先前 `wallet.debit` 事件無 subType、`WalletReadSyncListener.onDebit` 一律寫死 `BET`，會把贈送出帳誤標為下注。現由事件帶 `subType`（下注=`BET`、贈送出帳=`GIFT`）。
+- `kafka/WalletReadSyncListener.java`：`onDebit` 改用 `event.subType()`，**null 回退為 `BET`**（相容仍在 topic 中的舊訊息）。
+- `service/WalletService.java`：`debit()` 發布事件時帶上 `tx.getSubType()`。
+- 測試：`kafka/WalletReadSyncListenerTest.java` 更新既有 debit 事件建構子（補 subType=`BET`），並新增兩案（GIFT 如實保留、null 回退 BET）。
+- **Topic 清單未變**（仍是 `wallet.debit`/`wallet.credit`），故 `kafka/kafka-init.sh` 與 `tests/infra/kafka.test.js` 無需變更。
+
+### Why
+- 完成 T-026（工作分配表規格：`POST /api/v1/wallet/gift`、贈出 5,000／收受 10,000 當日上限、Redis TTL 到午夜、寫 `gift_logs`、觸發雙向帳務異動）。
+- 沿用既有帳務模式：冪等鍵（DB UNIQUE）防重、樂觀鎖（`@Version`）防超扣（AGENTS.md §2.8）。
+- `WalletDebitEvent` 加 `subType` 是為讀端流水正確標示贈送 vs 下注；改動向後相容（舊訊息回退 BET），且不新增 topic。
+
+### 已知限制（刻意放棄跨資料源原子性，**不**引入 XA/JTA；見程式內 `TODO(T-026)`）
+- PostgreSQL 雙分錄是唯一金流真相；commit 之後的 `gift_logs` 寫入與 Kafka 事件皆 best-effort。
+  1. **`gift_logs` 可能少列**：轉帳已 commit 但 MySQL 寫入失敗時，餘額仍正確，僅稽核列遺失（贈送歷史查詢會少報、`gift_logs` 與 `sub_type='GIFT'` 對不齊）。屬「稽核缺口」非「餘額錯誤」，失敗記 WARN 可事後補。
+  2. **Kafka 事件可能掉**：發布失敗則 rank-service 落後到下次帳務事件/重算（既有服務級限制，非 T-026 新增）。
+  3. **Redis 預扣僅在硬性程序死亡時可能與轉帳分歧**：try/catch 在任何拋出例外時 `DECRBY` 回補；但 JVM 在 `INCRBY` 後、commit 前被 OOM/SIGKILL 無法回補 → 當日計數略為多計（fail-safe：只會讓額度更嚴格、不會讓玩家超額），當地午夜 TTL 到期自動歸零。
+- **後續強化（本任務不做）**：優先走 **Outbox Pattern**（repo 已有 `database/mysql/migration/V3__create_outbox_events.sql`），把 `gift_logs` 意圖 + Kafka 事件與轉帳寫進同一筆 PostgreSQL 交易再非同步轉送，達成最終一致且保證投遞；或較簡單的對帳 job 從 PostgreSQL `sub_type='GIFT'` 回填 MySQL `gift_logs`。
+
+### How（如何驗證）
+- `mvn -pl backend/gateway-service,backend/member-service,backend/wallet-service test` → BUILD SUCCESS（wallet-service 74 案全綠，含 GiftServiceTest 10、GiftTransferServiceTest 4、WalletReadSyncListenerTest 9；`@SpringBootTest` contextLoads 通過，含新 bean 與 Redis 自動配置）。
+
+---
+
+## [feat] — 2026-05-29 — Kafka→MySQL 讀端同步（補 T-025 流水查詢資料來源）
+
+### Added
+- `backend/wallet-service/.../kafka/WalletReadSyncListener.java`（新增）：消費 `wallet.debit`/`wallet.credit` 事件，把每筆交易寫入 MySQL 讀庫 `wallet_transactions`（經 `WalletTransactionViewRepository`），讓 `GET /api/v1/wallet/transactions`（T-025）回傳真實流水。
+  - `onDebit`：寫入 `type=DEBIT`、`subType=BET`；`onCredit`：寫入 `type=CREDIT`、`subType=event.subType()`（WIN/CHECKIN/TASK/GIFT/GM_REWARD/BANKRUPTCY_AID）。
+  - 冪等：以讀庫主鍵 `existsById(transactionId)` 檢查，重送即略過寫入仍 ack（Kafka at-least-once 安全）。
+  - 每個 handler 個別標註 `@Transactional(transactionManager = "mysqlTransactionManager")`（不在類別層級，避免干擾 Kafka listener proxy）；成功 `save` 後才 `ack.acknowledge()`。
+- 測試（新增）：`kafka/WalletReadSyncListenerTest.java`（7 案，`@ExtendWith(MockitoExtension.class)`、真實 `ObjectMapper`）：debit/credit 正常同步、冪等跳過重送、JSON 格式錯誤往外拋不 ack、`DataAccessException` 往外拋不 ack。
+
+### Why
+- T-025 查詢 API 先前讀的是空的 MySQL 讀庫；需要事件驅動的同步管線把 PostgreSQL 寫端結果投影到讀端（ADR-001 CQRS、最終一致）。
+- ⚠️ ADR-002 地雷：本 listener **只消費事件 `wallet.debit`/`wallet.credit`，絕不消費指令 `wallet.credit.request`**——在 wallet-service 內消費指令會形成「再入帳→再發指令」的無限迴圈。
+- 錯誤處理沿用既有 `KafkaConsumerConfig`：`JsonProcessingException` 不可重試直送 `<topic>.DLT`；暫時性失敗往外拋、不 ack，重試 3 次耗盡後送 DLT。
+
+### How（如何驗證）
+- `mvn -pl backend/wallet-service test`（單元測試以 Mockito 驗證 save/ack 行為與冪等、不可重試/可重試例外路徑；listener 不需外部 Kafka）。
+
+---
+
+## [feat] — 2026-05-29 — 帳務流水查詢 API（T-025，CQRS MySQL 讀端）
+
+### Added
+- `backend/wallet-service/.../mysql/entity/WalletTransactionView.java`（新增）：MySQL 讀庫 `wallet_transactions` 唯讀視圖，由 `mysqlEntityManagerFactory` 管理（ADR-001 CQRS 讀端）。
+- `backend/wallet-service/.../mysql/repository/WalletTransactionViewRepository.java`（新增）：`search(...)` JPQL 查詢，支援 playerId + 可選類型 + 可選日期區間 + 分頁（null 即略過該條件）。
+- `backend/wallet-service/.../service/WalletQueryService.java`（新增）：讀端查詢服務，固定 `@Transactional(readOnly=true, transactionManager="mysqlTransactionManager")`，排序 createdAt DESC, id DESC。
+- `backend/wallet-service/.../dto/WalletTransactionResponse.java`、`common/PagedResponse.java`（新增）：對外回傳 DTO 與穩定分頁格式（不直接序列化 Spring `Page`）。
+- 測試（新增）：`controller/WalletTransactionsControllerTest.java`（10 案）、`service/WalletQueryServiceTest.java`（3 案）。
+
+### Changed
+- `backend/wallet-service/.../controller/WalletController.java`：新增 `GET /api/v1/wallet/transactions`，支援 `page/size`（size 上限 100）、`type`（DEBIT/CREDIT/BONUS，大小寫不敏感）、`from/to`（ISO yyyy-MM-dd，涵蓋整個 to 當日）；玩家身分取自 `X-User-Id` header；參數錯誤回 400。
+- `backend/wallet-service/.../config/DataSourceConfig.java`：MySQL EMF 的 `hibernate.hbm2ddl.auto` 由硬編 `validate` 改為與寫端共用組態來源（system property `jpa.ddl-auto` → env `JPA_DDL_AUTO` → 預設 `validate`），讓測試（surefire `jpa.ddl-auto=create`）能在 H2 自動建讀庫表；正式環境仍 `validate`。
+- `backend/wallet-service/.../exception/GlobalExceptionHandler.java`：新增 `MethodArgumentTypeMismatchException` → 400 處理（例如 `from/to` 日期格式錯誤、`page/size` 非數字）。
+
+### Why
+- T-025 要求帳務流水查詢走 MySQL 讀庫（ADR-001 CQRS 讀寫分離），與扣款/入帳（PostgreSQL 寫端）解耦，避免查詢與寫入鎖競爭。
+- 讀端視圖不含 `idempotency_key` 等冪等控制欄位，僅暴露查詢所需欄位；分頁採固定 schema 避免前端依賴 Spring `Page` 不穩定結構。
+
+### How（如何驗證）
+- `mvn -pl backend/wallet-service test` → **BUILD SUCCESS，Tests run: 51, Failures: 0, Errors: 0**（含本次新增 13 個單元測試，及 `contextLoads` 驗證新增 MySQL 實體後雙 EMF 仍正常啟動）。
+
+---
+
 ## [docs] — 2026-05-29 — AI 開發前必讀（AGENTS.md/CLAUDE.md）+ CHANGELOG 單一來源約定
 
 ### Added
@@ -120,7 +252,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 #### 🟠 P1 — 重要功能
 
-- [ ] **T-026 好友星幣贈送、T-027 破產補助**（組員C）。
+- [x] **T-026 好友星幣贈送**（組員C）— 2026-06-01 完成（`POST /api/v1/wallet/gift`）。
+- [ ] **T-027 破產補助**（組員C）。
 - [ ] **T-034~T-036 百家樂邏輯/API、RNG 公平性驗證**（組員B）。
 - [ ] **T-043 每週排行榜重置、T-044 每日持幣快照**（組員D）。
 - [ ] **T-050~T-053 Admin 後台**（JWT 角色、玩家管理、流通量報表、RTP 儀表板）— admin-service 僅有 datasource 骨架。

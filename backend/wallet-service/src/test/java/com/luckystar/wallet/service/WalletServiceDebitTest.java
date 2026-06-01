@@ -208,4 +208,54 @@ class WalletServiceDebitTest {
         verify(walletTransactionRepository, never()).save(any());
         verify(kafkaTemplate, never()).send(anyString(), anyString(), anyString());
     }
+
+    // ---------------------------------------------------------------
+    // T-024 冪等性防重複機制：補強邊界案例
+    // ---------------------------------------------------------------
+
+    @Test
+    void debit_duplicateIdempotencyKey_returnsStoredValuesNotRequestValues() {
+        // 同一冪等鍵重送時，即使請求金額被竄改，也必須回傳「原始交易」的數值
+        DebitRequest request = buildRequest(1L, 999L, "key-stored");
+        WalletTransaction existingTx = buildTransaction(42L, 1L, 300L, 1000L, 700L, "key-stored");
+
+        when(walletTransactionRepository.findByIdempotencyKey("key-stored"))
+                .thenReturn(Optional.of(existingTx));
+
+        DebitResponse response = walletService.debit(request);
+
+        // 回傳以原始交易為準，而非請求的 999
+        assertThat(response.getAmount()).isEqualTo(300L);
+        assertThat(response.getTransactionId()).isEqualTo(42L);
+        assertThat(response.getBalanceBefore()).isEqualTo(1000L);
+        assertThat(response.getBalanceAfter()).isEqualTo(700L);
+        assertThat(response.isIdempotent()).isTrue();
+
+        // 冪等命中只查一次，且完全不碰錢包
+        verify(walletTransactionRepository, times(1)).findByIdempotencyKey("key-stored");
+        verify(walletRepository, never()).findById(any());
+    }
+
+    @Test
+    void debit_concurrentInsert_reQueryReturnsEmpty_rethrowsOriginalException() {
+        // UNIQUE 違規後重查仍查不到（理論上不該發生）→ 拋回原始 DataIntegrityViolationException，
+        // 而非吞掉錯誤回傳假成功
+        DebitRequest request = buildRequest(1L, 300L, "key-ghost");
+        Wallet wallet = buildWallet(1L, 1000L, 0L);
+        DataIntegrityViolationException violation =
+                new DataIntegrityViolationException("duplicate idempotency_key");
+
+        when(walletTransactionRepository.findByIdempotencyKey("key-ghost"))
+                .thenReturn(Optional.empty())   // Step 1
+                .thenReturn(Optional.empty());  // 違規後重查仍為空
+        when(walletRepository.findById(1L)).thenReturn(Optional.of(wallet));
+        when(walletRepository.save(any(Wallet.class))).thenReturn(wallet);
+        when(walletTransactionRepository.save(any(WalletTransaction.class)))
+                .thenThrow(violation);
+
+        assertThatThrownBy(() -> walletService.debit(request))
+                .isSameAs(violation);
+
+        verify(kafkaTemplate, never()).send(anyString(), anyString(), anyString());
+    }
 }
