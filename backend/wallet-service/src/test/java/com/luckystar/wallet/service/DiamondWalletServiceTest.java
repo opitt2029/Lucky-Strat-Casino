@@ -1,6 +1,7 @@
 package com.luckystar.wallet.service;
 
 import com.luckystar.wallet.exception.DiamondWalletNotFoundException;
+import com.luckystar.wallet.exception.InsufficientDiamondException;
 import com.luckystar.wallet.postgres.entity.DiamondWallet;
 import com.luckystar.wallet.postgres.repository.DiamondWalletRepository;
 import org.junit.jupiter.api.Test;
@@ -84,6 +85,74 @@ class DiamondWalletServiceTest {
         when(diamondWalletRepository.findById(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> diamondWalletService.creditDiamond(99L, 500L))
+                .isInstanceOf(DiamondWalletNotFoundException.class);
+
+        verify(diamondWalletRepository, never()).save(any());
+    }
+
+    // ── getBalance（T-104）──────────────────────────────────────────────────
+
+    @Test
+    void getBalance_existingWallet_returnsBalance() {
+        DiamondWallet wallet = DiamondWallet.builder().playerId(42L).balance(750L).version(0L).build();
+        when(diamondWalletRepository.findById(42L)).thenReturn(Optional.of(wallet));
+
+        long balance = diamondWalletService.getBalance(42L);
+
+        assertThat(balance).isEqualTo(750L);
+    }
+
+    @Test
+    void getBalance_walletNotFound_throwsDiamondWalletNotFoundException() {
+        when(diamondWalletRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> diamondWalletService.getBalance(99L))
+                .isInstanceOf(DiamondWalletNotFoundException.class);
+    }
+
+    // ── debitDiamond（T-103）────────────────────────────────────────────────
+
+    @Test
+    void debitDiamond_sufficientBalance_deductsAndReturnsNewBalance() {
+        DiamondWallet wallet = DiamondWallet.builder().playerId(42L).balance(200L).version(0L).build();
+        when(diamondWalletRepository.findById(42L)).thenReturn(Optional.of(wallet));
+
+        long newBalance = diamondWalletService.debitDiamond(42L, 50L);
+
+        assertThat(newBalance).isEqualTo(150L);
+        ArgumentCaptor<DiamondWallet> captor = ArgumentCaptor.forClass(DiamondWallet.class);
+        verify(diamondWalletRepository).save(captor.capture());
+        assertThat(captor.getValue().getBalance()).isEqualTo(150L);
+    }
+
+    @Test
+    void debitDiamond_exactBalance_deductsToZero() {
+        DiamondWallet wallet = DiamondWallet.builder().playerId(42L).balance(100L).version(0L).build();
+        when(diamondWalletRepository.findById(42L)).thenReturn(Optional.of(wallet));
+
+        long newBalance = diamondWalletService.debitDiamond(42L, 100L);
+
+        assertThat(newBalance).isEqualTo(0L);
+    }
+
+    @Test
+    void debitDiamond_insufficientBalance_throwsInsufficientDiamondAndDoesNotSave() {
+        DiamondWallet wallet = DiamondWallet.builder().playerId(42L).balance(30L).version(0L).build();
+        when(diamondWalletRepository.findById(42L)).thenReturn(Optional.of(wallet));
+
+        assertThatThrownBy(() -> diamondWalletService.debitDiamond(42L, 100L))
+                .isInstanceOf(InsufficientDiamondException.class)
+                .hasMessageContaining("required=100")
+                .hasMessageContaining("available=30");
+
+        verify(diamondWalletRepository, never()).save(any());
+    }
+
+    @Test
+    void debitDiamond_walletNotFound_throwsDiamondWalletNotFoundException() {
+        when(diamondWalletRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> diamondWalletService.debitDiamond(99L, 10L))
                 .isInstanceOf(DiamondWalletNotFoundException.class);
 
         verify(diamondWalletRepository, never()).save(any());
