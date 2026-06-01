@@ -2,9 +2,12 @@ package com.luckystar.member.validation;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
+@ExtendWith(MockitoExtension.class)
 class AvatarUrlValidatorTest {
 
     private AvatarUrlValidator validator;
@@ -15,32 +18,27 @@ class AvatarUrlValidatorTest {
     }
 
     @Test
-    void https_url_returns_true() {
-        assertTrue(validator.isValid("https://cdn.example.com/avatar.png", null));
+    void nullValue_isValid() {
+        assertThat(validator.isValid(null, null)).isTrue();
     }
 
     @Test
-    void http_url_returns_true() {
-        assertTrue(validator.isValid("http://cdn.example.com/avatar.png", null));
+    void validHttpUrl_isValid() {
+        assertThat(validator.isValid("https://example.com/avatar.png", null)).isTrue();
     }
 
     @Test
-    void data_image_png_base64_returns_true() {
-        assertTrue(validator.isValid("data:image/png;base64,iVBORw0KGgo=", null));
+    void validBase64DataUri_isValid() {
+        assertThat(validator.isValid("data:image/png;base64,abc123", null)).isTrue();
     }
 
     @Test
-    void invalid_string_returns_false() {
-        assertFalse(validator.isValid("not-a-url", null));
+    void invalidString_isInvalid() {
+        assertThat(validator.isValid("not-a-url", null)).isFalse();
     }
 
     @Test
-    void null_returns_true() {
-        assertTrue(validator.isValid(null, null));
-    }
-
-    @Test
-    void blank_string_returns_true() {
-        assertTrue(validator.isValid("   ", null));
+    void ftpUrl_isInvalid() {
+        assertThat(validator.isValid("ftp://example.com/image.png", null)).isFalse();
     }
 }

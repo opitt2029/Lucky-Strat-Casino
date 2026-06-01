@@ -12,6 +12,7 @@
 3. [PR 提交流程](#3-pr-提交流程)
 4. [Code Review 清單](#4-code-review-清單)
 5. [本機開發流程（SOP）](#5-本機開發流程sop)
+6. [CHANGELOG 更新規則](#6-changelog-更新規則)
 
 ---
 
@@ -214,6 +215,43 @@ git push origin feature/你的名字-功能描述
 > git fetch origin
 > git rebase origin/develop
 > ```
+
+---
+
+## 6. CHANGELOG 更新規則
+
+### 單一真相來源
+
+- **全專案只維護根目錄的 `./CHANGELOG.md` 一份**。各服務**不**另開 per-service CHANGELOG。
+- `backend/member-service/CHANGELOG.md` 為早期遺留、**已凍結為歷史紀錄**，請勿在其中新增條目。
+
+### 什麼時候要更新
+
+| 變更類型 | 要更新 CHANGELOG？ |
+|---|---|
+| 程式碼 / 設定 / schema / API / Kafka 契約（**會影響行為**） | ✅ 要 |
+| 純文件錯字、排版、註解微調 | ❌ 可略 |
+| 架構級決策 | ✅ 另寫 `docs/adr/ADR-00X.md`，並在 CHANGELOG 引用 |
+
+### 怎麼寫
+
+在 `./CHANGELOG.md` **最上方**新增一筆：
+
+```markdown
+## [type] — YYYY-MM-DD — 一句話描述
+
+### Added / Changed / Fixed / Removed
+- 動到哪些檔、做了什麼
+
+### Why
+- 為什麼這樣改（決策理由）
+
+### Verified
+- 如何驗證（例：mvn test 結果）
+```
+
+- `type` 對應 §2 的 Commit type（feat / fix / docs…）。
+- **CHANGELOG 更新應包含在同一個 PR 內**，Reviewer 會一併檢查（見 §4 不另列，但屬必要產物）。
 
 ---
 

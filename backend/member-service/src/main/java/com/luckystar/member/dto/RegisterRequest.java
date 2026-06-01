@@ -1,7 +1,11 @@
 package com.luckystar.member.dto;
 
 import jakarta.validation.constraints.*;
+import lombok.Getter;
+import lombok.Setter;
 
+@Getter
+@Setter
 public class RegisterRequest {
 
     @NotBlank
@@ -10,21 +14,15 @@ public class RegisterRequest {
 
     @NotBlank
     @Email
+    @Size(max = 100)
     private String email;
 
     @NotBlank
-    @Pattern(
-        regexp = "^(?=.*[A-Za-z])(?=.*\\d).{8,}$",
-        message = "Password must be at least 8 characters and contain both letters and digits"
-    )
+    @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).{8,}$",
+             message = "Password must be at least 8 characters and contain both letters and digits")
     private String password;
 
-    public String getUsername() { return username; }
-    public void setUsername(String username) { this.username = username; }
-
-    public String getEmail() { return email; }
-    public void setEmail(String email) { this.email = email; }
-
-    public String getPassword() { return password; }
-    public void setPassword(String password) { this.password = password; }
+    @NotBlank
+    @Size(min = 2, max = 50)
+    private String nickname;
 }

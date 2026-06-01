@@ -2,19 +2,16 @@ package com.luckystar.member.dto;
 
 import com.luckystar.member.validation.ValidAvatarUrl;
 import jakarta.validation.constraints.Size;
+import lombok.Getter;
+import lombok.Setter;
 
+@Getter
+@Setter
 public class UpdateProfileRequest {
 
-    @Size(max = 50)
+    @Size(min = 2, max = 50, message = "Nickname must be between 2 and 50 characters")
     private String nickname;
 
-    @Size(max = 500)
     @ValidAvatarUrl
-    private String avatarUrl;
-
-    public String getNickname() { return nickname; }
-    public void setNickname(String nickname) { this.nickname = nickname; }
-
-    public String getAvatarUrl() { return avatarUrl; }
-    public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
+    private String avatar;
 }

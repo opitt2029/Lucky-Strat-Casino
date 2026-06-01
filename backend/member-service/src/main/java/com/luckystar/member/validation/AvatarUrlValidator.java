@@ -3,23 +3,35 @@ package com.luckystar.member.validation;
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
 
+import java.util.Set;
 import java.util.regex.Pattern;
 
 public class AvatarUrlValidator implements ConstraintValidator<ValidAvatarUrl, String> {
 
-    private static final Pattern HTTP_PATTERN =
-            Pattern.compile("^https?://.*", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HTTP_URL_PATTERN =
+            Pattern.compile("^https?://[\\w\\-.]+(:\\d+)?(/[\\w\\-./?%&=]*)?$");
 
-    private static final Pattern DATA_URI_PATTERN =
-            Pattern.compile("^data:image/(jpeg|png|gif|webp);base64,.*", Pattern.CASE_INSENSITIVE);
+    // 白名單：僅允許靜態點陣圖 MIME；明確排除 svg+xml（可內嵌 <script> 造成 XSS）
+    private static final Set<String> ALLOWED_DATA_PREFIXES = Set.of(
+            "data:image/jpeg;base64,",
+            "data:image/png;base64,",
+            "data:image/gif;base64,",
+            "data:image/webp;base64,"
+    );
 
     @Override
     public boolean isValid(String value, ConstraintValidatorContext context) {
-        // null 或空白視為「不更新」，由上層業務邏輯處理
-        if (value == null || value.isBlank()) {
+        if (value == null) {
             return true;
         }
-        return HTTP_PATTERN.matcher(value).matches()
-                || DATA_URI_PATTERN.matcher(value).matches();
+        if (value.startsWith("data:")) {
+            for (String prefix : ALLOWED_DATA_PREFIXES) {
+                if (value.startsWith(prefix)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return HTTP_URL_PATTERN.matcher(value).matches();
     }
 }

@@ -1,0 +1,21 @@
+# 測試專用設定：用 H2 記憶體資料庫取代 PostgreSQL / MySQL，
+# 讓 @SpringBootTest（contextLoads）與整合測試不需外部基礎設施即可啟動。
+# 純 Mockito 單元測試不載入此 context，不受影響。
+spring:
+  # PostgreSQL 寫端 → H2（PostgreSQL 相容模式）。對應 DataSourceConfig 的 spring.datasource.*
+  datasource:
+    jdbc-url: jdbc:h2:mem:wallet_pg;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+
+  # MySQL 讀端 → H2（MySQL 相容模式）。對應 DataSourceConfig 的 spring.datasource-mysql.*
+  datasource-mysql:
+    jdbc-url: jdbc:h2:mem:wallet_mysql;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+
+# 滿足 application.yml 中 ${INTERNAL_SECRET:?...} 的必填要求
+internal:
+  secret: test-secret

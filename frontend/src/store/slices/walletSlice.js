@@ -1,11 +1,61 @@
-import { createSlice } from '@reduxjs/toolkit'
+import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
+import { mockApi } from '../../services/mockApi'
+import { walletApi } from '../../services/walletApi'
+import { extractError } from '../../services/memberApi'
 
 const initialState = {
   balance: 0,
   frozenAmount: 0,
+  transactions: [],
+  transactionTotal: 0,
+  transactionPage: 1,
+  transactionPageSize: 8,
+  filters: {
+    type: 'all',
+    startDate: '',
+    endDate: '',
+  },
+  checkIn: {
+    loading: false,
+    reward: null,
+    consecutiveDays: null,
+    message: '',
+  },
   loading: false,
   error: null,
 }
+
+export const fetchWallet = createAsyncThunk('wallet/fetchWallet', async (_, { rejectWithValue }) => {
+  try {
+    return await walletApi.getBalance()
+  } catch (error) {
+    return rejectWithValue(extractError(error))
+  }
+})
+
+export const dailyCheckIn = createAsyncThunk('wallet/dailyCheckIn', async (_, { rejectWithValue }) => {
+  try {
+    return await walletApi.dailyCheckIn()
+  } catch (error) {
+    return rejectWithValue(extractError(error))
+  }
+})
+
+export const fetchTransactions = createAsyncThunk('wallet/fetchTransactions', async (params, { rejectWithValue }) => {
+  try {
+    return await mockApi.getTransactions(params)
+  } catch (error) {
+    return rejectWithValue(error.message)
+  }
+})
+
+export const giftCoins = createAsyncThunk('wallet/giftCoins', async (payload, { rejectWithValue }) => {
+  try {
+    return await mockApi.giftCoins(payload)
+  } catch (error) {
+    return rejectWithValue(error.message)
+  }
+})
 
 const walletSlice = createSlice({
   name: 'wallet',
@@ -26,8 +76,80 @@ const walletSlice = createSlice({
       state.frozenAmount = 0
       state.error = null
     },
+    setTransactionFilters(state, action) {
+      state.filters = { ...state.filters, ...action.payload }
+      state.transactionPage = 1
+    },
+    setTransactionPage(state, action) {
+      state.transactionPage = action.payload
+    },
+    clearWalletNotice(state) {
+      state.checkIn.message = ''
+      state.checkIn.reward = null
+      state.error = null
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      .addCase(fetchWallet.pending, (state) => {
+        state.loading = true
+        state.error = null
+      })
+      .addCase(fetchWallet.fulfilled, (state, action) => {
+        state.loading = false
+        state.balance = action.payload.balance
+        state.frozenAmount = action.payload.frozenAmount ?? 0
+      })
+      .addCase(fetchWallet.rejected, (state, action) => {
+        state.loading = false
+        state.error = action.payload || '錢包同步失敗'
+      })
+      .addCase(dailyCheckIn.pending, (state) => {
+        state.checkIn.loading = true
+        state.checkIn.message = ''
+        state.error = null
+      })
+      .addCase(dailyCheckIn.fulfilled, (state, action) => {
+        state.checkIn.loading = false
+        state.balance = action.payload.wallet.balance
+        state.frozenAmount = action.payload.wallet.frozenAmount ?? 0
+        state.checkIn.reward = action.payload.reward
+        state.checkIn.consecutiveDays = action.payload.consecutiveDays
+        state.checkIn.message = `簽到成功，連續 ${action.payload.consecutiveDays} 天，獲得 ${action.payload.reward.toLocaleString()} 星幣`
+      })
+      .addCase(dailyCheckIn.rejected, (state, action) => {
+        state.checkIn.loading = false
+        state.error = action.payload || '簽到失敗'
+      })
+      .addCase(fetchTransactions.pending, (state) => {
+        state.loading = true
+        state.error = null
+      })
+      .addCase(fetchTransactions.fulfilled, (state, action) => {
+        state.loading = false
+        state.transactions = action.payload.items
+        state.transactionTotal = action.payload.total
+        state.transactionPage = action.payload.page
+        state.transactionPageSize = action.payload.pageSize
+      })
+      .addCase(fetchTransactions.rejected, (state, action) => {
+        state.loading = false
+        state.error = action.payload || '交易紀錄讀取失敗'
+      })
+      .addCase(giftCoins.fulfilled, (state, action) => {
+        state.balance = action.payload.wallet.balance
+        state.frozenAmount = action.payload.wallet.frozenAmount ?? 0
+      })
   },
 })
 
-export const { setBalance, setLoading, setError, resetWallet } = walletSlice.actions
+export const {
+  setBalance,
+  setLoading,
+  setError,
+  resetWallet,
+  setTransactionFilters,
+  setTransactionPage,
+  clearWalletNotice,
+} = walletSlice.actions
 export default walletSlice.reducer

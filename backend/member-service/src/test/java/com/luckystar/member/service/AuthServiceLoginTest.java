@@ -1,5 +1,6 @@
 package com.luckystar.member.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.luckystar.member.dto.LoginRequest;
 import com.luckystar.member.dto.LoginResponse;
 import com.luckystar.member.entity.Member;
@@ -7,15 +8,14 @@ import com.luckystar.member.exception.AccountDisabledException;
 import com.luckystar.member.exception.InvalidCredentialsException;
 import com.luckystar.member.repository.MemberRepository;
 import com.luckystar.member.security.JwtTokenProvider;
-import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.util.Date;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -37,6 +37,12 @@ class AuthServiceLoginTest {
     @Mock
     private TokenRedisService tokenRedisService;
 
+    @Mock
+    private KafkaTemplate<String, String> kafkaTemplate;
+
+    @Mock
+    private ObjectMapper objectMapper;
+
     @InjectMocks
     private AuthService authService;
 
@@ -53,7 +59,8 @@ class AuthServiceLoginTest {
         m.setUsername("testuser");
         m.setEmail("test@example.com");
         m.setPasswordHash("$2a$hashed");
-        m.setActive(true);
+        m.setRole("PLAYER");
+        m.setStatus("ACTIVE");
         return m;
     }
 
@@ -66,9 +73,9 @@ class AuthServiceLoginTest {
 
         when(memberRepository.findByUsername("testuser")).thenReturn(Optional.of(member));
         when(passwordEncoder.matches("Password1", "$2a$hashed")).thenReturn(true);
-        when(jwtTokenProvider.generateAccessToken(1L, "testuser")).thenReturn("access.token.here");
-        when(jwtTokenProvider.generateRefreshToken(1L)).thenReturn("refresh.token.here");
-        when(jwtTokenProvider.getRefreshTokenExpiryMs()).thenReturn(604800000L);
+        when(jwtTokenProvider.generateAccessToken(1L, "testuser", "PLAYER")).thenReturn("access.token.here");
+        when(jwtTokenProvider.generateRefreshToken(1L, "testuser", "PLAYER")).thenReturn("refresh.token.here");
+        when(jwtTokenProvider.getRemainingTtlMs("refresh.token.here")).thenReturn(604800000L);
 
         LoginResponse response = authService.login(request);
 
@@ -106,7 +113,7 @@ class AuthServiceLoginTest {
     void login_accountDisabled() {
         LoginRequest request = buildLoginRequest();
         Member member = buildActiveMember();
-        member.setActive(false);
+        member.setStatus("DISABLED");
 
         when(memberRepository.findByUsername("testuser")).thenReturn(Optional.of(member));
         when(passwordEncoder.matches("Password1", "$2a$hashed")).thenReturn(true);
@@ -123,12 +130,9 @@ class AuthServiceLoginTest {
         Long memberId = 1L;
         String jti = "some-jti-uuid";
 
-        Claims claims = mock(Claims.class);
-        // 設定過期時間為 60 秒後，確保 remainingTtl > 0
-        when(claims.getExpiration()).thenReturn(new Date(System.currentTimeMillis() + 60_000L));
-
-        when(jwtTokenProvider.getJtiFromToken(rawToken)).thenReturn(jti);
-        when(jwtTokenProvider.getClaimsFromToken(rawToken)).thenReturn(claims);
+        when(jwtTokenProvider.validateToken(rawToken)).thenReturn(true);
+        when(jwtTokenProvider.getJti(rawToken)).thenReturn(jti);
+        when(jwtTokenProvider.getRemainingTtlMs(rawToken)).thenReturn(60_000L);
 
         authService.logout(authHeader, memberId);
 

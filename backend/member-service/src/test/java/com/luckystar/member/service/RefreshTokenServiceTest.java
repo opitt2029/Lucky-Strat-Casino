@@ -6,6 +6,7 @@ import com.luckystar.member.entity.Member;
 import com.luckystar.member.exception.InvalidTokenException;
 import com.luckystar.member.repository.MemberRepository;
 import com.luckystar.member.security.JwtTokenProvider;
+import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -50,18 +51,30 @@ class RefreshTokenServiceTest {
         m.setId(MEMBER_ID);
         m.setUsername("testuser");
         m.setEmail("test@example.com");
-        m.setActive(true);
+        m.setRole("PLAYER");
+        m.setStatus("ACTIVE");
         return m;
     }
 
+    // 模擬 JwtTokenProvider.getClaims(token) 回傳的 Claims（含 subject 與 username）
+    private Claims mockClaims() {
+        Claims claims = mock(Claims.class);
+        when(claims.getSubject()).thenReturn(String.valueOf(MEMBER_ID));
+        when(claims.get("username", String.class)).thenReturn("testuser");
+        return claims;
+    }
+
     private void stubSuccessPath() {
+        // 注意：先建好 claims 變數再傳入 thenReturn，不可 inline 呼叫 mockClaims()，
+        // 否則會在外層 when() 尚未完成時觸發內層 stubbing → Mockito UnfinishedStubbing
+        Claims claims = mockClaims();
         when(jwtTokenProvider.validateToken(OLD_REFRESH_TOKEN)).thenReturn(true);
-        when(jwtTokenProvider.getMemberIdFromToken(OLD_REFRESH_TOKEN)).thenReturn(MEMBER_ID);
-        when(tokenRedisService.getRefreshToken(MEMBER_ID)).thenReturn(Optional.of(OLD_REFRESH_TOKEN));
+        when(jwtTokenProvider.getClaims(OLD_REFRESH_TOKEN)).thenReturn(claims);
+        when(tokenRedisService.getRefreshToken(MEMBER_ID)).thenReturn(OLD_REFRESH_TOKEN);
         when(memberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(buildMember()));
-        when(jwtTokenProvider.generateAccessToken(MEMBER_ID, "testuser")).thenReturn(NEW_ACCESS_TOKEN);
-        when(jwtTokenProvider.generateRefreshToken(MEMBER_ID)).thenReturn(NEW_REFRESH_TOKEN);
-        when(jwtTokenProvider.getRefreshTokenExpiryMs()).thenReturn(604800000L);
+        when(jwtTokenProvider.generateAccessToken(MEMBER_ID, "testuser", "PLAYER")).thenReturn(NEW_ACCESS_TOKEN);
+        when(jwtTokenProvider.generateRefreshToken(MEMBER_ID, "testuser", "PLAYER")).thenReturn(NEW_REFRESH_TOKEN);
+        when(jwtTokenProvider.getRemainingTtlMs(NEW_REFRESH_TOKEN)).thenReturn(604800000L);
     }
 
     // ── Test 1: 成功換發新 Token ───────────────────────────────────────────────
@@ -96,9 +109,10 @@ class RefreshTokenServiceTest {
 
     @Test
     void refreshToken_revokedToken() {
+        Claims claims = mockClaims();
         when(jwtTokenProvider.validateToken(OLD_REFRESH_TOKEN)).thenReturn(true);
-        when(jwtTokenProvider.getMemberIdFromToken(OLD_REFRESH_TOKEN)).thenReturn(MEMBER_ID);
-        when(tokenRedisService.getRefreshToken(MEMBER_ID)).thenReturn(Optional.empty());
+        when(jwtTokenProvider.getClaims(OLD_REFRESH_TOKEN)).thenReturn(claims);
+        when(tokenRedisService.getRefreshToken(MEMBER_ID)).thenReturn(null);
 
         assertThrows(InvalidTokenException.class, () -> authService.refreshToken(buildRequest()));
     }
@@ -107,11 +121,11 @@ class RefreshTokenServiceTest {
 
     @Test
     void refreshToken_tokenMismatch() {
+        Claims claims = mockClaims();
         when(jwtTokenProvider.validateToken(OLD_REFRESH_TOKEN)).thenReturn(true);
-        when(jwtTokenProvider.getMemberIdFromToken(OLD_REFRESH_TOKEN)).thenReturn(MEMBER_ID);
+        when(jwtTokenProvider.getClaims(OLD_REFRESH_TOKEN)).thenReturn(claims);
         // Redis 中存的是另一個 token，與請求不符
-        when(tokenRedisService.getRefreshToken(MEMBER_ID))
-                .thenReturn(Optional.of("completely.different.token"));
+        when(tokenRedisService.getRefreshToken(MEMBER_ID)).thenReturn("completely.different.token");
 
         assertThrows(InvalidTokenException.class, () -> authService.refreshToken(buildRequest()));
     }

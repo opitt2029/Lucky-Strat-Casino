@@ -5,7 +5,6 @@ spring:
   application:
     name: member-service
 
-  # MySQL 資料庫（ADR-001：members、friendships、daily_checkins、task_definitions、player_tasks）
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3307}/${MYSQL_DATABASE:lucky_star_casino}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Taipei&characterEncoding=UTF-8
     username: ${MYSQL_USER:lucky_user}
@@ -18,7 +17,6 @@ spring:
 
   jpa:
     hibernate:
-      # Schema 由 database/mysql/init.sql 管理；預設 validate，本機開發可在 .env 設 JPA_DDL_AUTO=update
       ddl-auto: ${JPA_DDL_AUTO:validate}
     show-sql: false
     properties:
@@ -26,20 +24,21 @@ spring:
         dialect: org.hibernate.dialect.MySQLDialect
         format_sql: false
 
-  # Redis — Refresh Token (TTL 7天)、JWT 黑名單
   data:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       timeout: 2000ms
 
-  # Kafka
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
       retries: 3
+      acks: all                      # 等所有 in-sync replica 落盤才算成功（金流事件不可遺失）
+      properties:
+        enable.idempotence: true     # broker 端去重，避免 retry 造成重複訊息
     consumer:
       group-id: member-service-group
       auto-offset-reset: earliest
@@ -47,16 +46,14 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       enable-auto-commit: false
 
-  # 關閉 Spring Security 預設登入頁（由自訂 JWT Filter 處理）
   security:
     user:
       name: disabled
 
-# JWT 設定 — secret 必須由環境變數提供，不在 yml 留預設值
 jwt:
   secret: ${JWT_SECRET:?JWT_SECRET environment variable is required}
-  access-token-expiry-ms: ${JWT_ACCESS_TOKEN_EXPIRY_MS:900000}     # 15 分鐘
-  refresh-token-expiry-ms: ${JWT_REFRESH_TOKEN_EXPIRY_MS:604800000} # 7 天
+  access-token-expiry-ms: ${JWT_ACCESS_TOKEN_EXPIRY_MS:900000}
+  refresh-token-expiry-ms: ${JWT_REFRESH_TOKEN_EXPIRY_MS:604800000}
 
 management:
   endpoints:
@@ -73,7 +70,8 @@ logging:
     org.springframework.security: ${LOG_LEVEL_SECURITY:INFO}
     org.hibernate.SQL: ${LOG_LEVEL_SQL:OFF}
 
-# 服務間呼叫驗證 — Gateway 轉發 /internal/** 時附加此 secret
-# 啟動時若未設定環境變數 INTERNAL_SECRET，服務將拒絕啟動
 internal:
   secret: ${INTERNAL_SECRET:?INTERNAL_SECRET environment variable is required}
+
+outbox:
+  poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:5000}   # OutboxPoller 輪詢間隔（毫秒）

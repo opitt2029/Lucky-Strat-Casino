@@ -1,3 +1,108 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #09090b;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.theme-background,
+.theme-artwork {
+  background-color: var(--theme-bg-color, #09090b);
+  background-image: var(--theme-bg-overlay, none), var(--theme-bg-image, none),
+    var(--theme-bg-accent, none);
+  background-position: center, var(--theme-bg-position, center), center;
+  background-repeat: no-repeat;
+  background-size: cover, var(--theme-bg-size, cover), cover;
+}
+
+.theme-background {
+  min-height: 100vh;
+  background-attachment: fixed, fixed, fixed;
+}
+
+.scroll-sections {
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+}
+
+.scroll-section {
+  min-height: 100vh;
+  scroll-snap-align: start;
+}
+
+.decorative-asset {
+  background-color: #18181b;
+  background-image: var(--decorative-overlay, none), var(--decorative-image, none);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+@keyframes reel-blur {
+  0% {
+    transform: translateY(-18px);
+    opacity: 0.35;
+  }
+  45% {
+    transform: translateY(14px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes win-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 rgba(255, 255, 255, 0);
+  }
+  50% {
+    transform: scale(1.015);
+    box-shadow: 0 0 32px rgba(255, 255, 255, 0.28);
+  }
+}
+
+@keyframes card-flip {
+  0% {
+    transform: rotateY(90deg);
+    opacity: 0.3;
+  }
+  100% {
+    transform: rotateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-reel-blur {
+  animation: reel-blur 0.42s ease-in-out 3;
+}
+
+.animate-win-pulse {
+  animation: win-pulse 0.9s ease-in-out infinite;
+}
+
+.animate-card-flip {
+  animation: card-flip 0.36s ease-out both;
+  transform-style: preserve-3d;
+}

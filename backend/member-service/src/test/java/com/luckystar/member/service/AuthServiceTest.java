@@ -1,6 +1,5 @@
 package com.luckystar.member.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.luckystar.member.dto.RegisterRequest;
 import com.luckystar.member.dto.RegisterResponse;
 import com.luckystar.member.entity.Member;
@@ -11,7 +10,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
@@ -30,11 +28,7 @@ class AuthServiceTest {
     private PasswordEncoder passwordEncoder;
 
     @Mock
-    @SuppressWarnings("rawtypes")
-    private KafkaTemplate kafkaTemplate;
-
-    @Mock
-    private ObjectMapper objectMapper;
+    private OutboxService outboxService;
 
     @InjectMocks
     private AuthService authService;
@@ -47,13 +41,7 @@ class AuthServiceTest {
         return req;
     }
 
-    @Test
-    void register_success() throws Exception {
-        RegisterRequest request = buildRequest();
-
-        when(memberRepository.existsByUsername("testuser")).thenReturn(false);
-        when(memberRepository.existsByEmail("test@example.com")).thenReturn(false);
-        when(passwordEncoder.encode("Password1")).thenReturn("$2a$hashed");
+    private void stubSuccessfulSave() {
         when(memberRepository.save(any(Member.class))).thenAnswer(inv -> {
             Member m = inv.getArgument(0);
             m.setId(1L);
@@ -61,12 +49,22 @@ class AuthServiceTest {
             m.setUpdatedAt(LocalDateTime.now());
             return m;
         });
-        when(objectMapper.writeValueAsString(any())).thenReturn("{\"memberId\":1,\"username\":\"testuser\",\"email\":\"test@example.com\"}");
+    }
+
+    @Test
+    void register_success() {
+        RegisterRequest request = buildRequest();
+
+        when(memberRepository.existsByUsername("testuser")).thenReturn(false);
+        when(memberRepository.existsByEmail("test@example.com")).thenReturn(false);
+        when(passwordEncoder.encode("Password1")).thenReturn("$2a$hashed");
+        stubSuccessfulSave();
 
         RegisterResponse response = authService.register(request);
 
         verify(memberRepository, times(1)).save(any(Member.class));
-        verify(kafkaTemplate, times(1)).send(anyString(), anyString(), anyString());
+        // 事件寫入 outbox（不再直接送 Kafka）：與會員寫入同一交易
+        verify(outboxService, times(1)).save(eq("member.registered"), eq("1"), any());
         assertEquals("testuser", response.getUsername());
     }
 
@@ -78,6 +76,7 @@ class AuthServiceTest {
 
         assertThrows(MemberAlreadyExistsException.class, () -> authService.register(request));
         verify(memberRepository, never()).save(any());
+        verify(outboxService, never()).save(anyString(), anyString(), any());
     }
 
     @Test
@@ -91,25 +90,19 @@ class AuthServiceTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
-    void register_kafkaFailure_doesNotRollback() throws Exception {
+    void register_outboxFailure_propagates() {
+        // 行為已改：outbox 寫入與會員寫入同一交易，失敗時應往上拋觸發 rollback，
+        // 不再像舊版那樣 best-effort 吞掉錯誤
         RegisterRequest request = buildRequest();
 
         when(memberRepository.existsByUsername("testuser")).thenReturn(false);
         when(memberRepository.existsByEmail("test@example.com")).thenReturn(false);
         when(passwordEncoder.encode("Password1")).thenReturn("$2a$hashed");
-        when(memberRepository.save(any(Member.class))).thenAnswer(inv -> {
-            Member m = inv.getArgument(0);
-            m.setId(1L);
-            m.setCreatedAt(LocalDateTime.now());
-            m.setUpdatedAt(LocalDateTime.now());
-            return m;
-        });
-        when(objectMapper.writeValueAsString(any())).thenReturn("{\"memberId\":1}");
-        when(kafkaTemplate.send(anyString(), anyString(), anyString()))
-                .thenThrow(new RuntimeException("Kafka unavailable"));
+        stubSuccessfulSave();
+        doThrow(new IllegalStateException("outbox unavailable"))
+                .when(outboxService).save(anyString(), anyString(), any());
 
-        assertDoesNotThrow(() -> authService.register(request));
+        assertThrows(IllegalStateException.class, () -> authService.register(request));
         verify(memberRepository, times(1)).save(any(Member.class));
     }
 }

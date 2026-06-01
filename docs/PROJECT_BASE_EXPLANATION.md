@@ -107,20 +107,35 @@ cp .env.example .env
 
 ## 資料庫目前初始化了什麼
 
-目前 MySQL 與 PostgreSQL 都只初始化一張基本健康檢查表：
+### MySQL（`database/mysql/init.sql`）
 
-```sql
-system_health_check
-```
+| 資料表 | 所屬服務 | 說明 |
+| --- | --- | --- |
+| `system_health_check` | 基礎建設 | 確認資料庫初始化流程正常，各 Service 可寫入健康狀態 |
+| `members` | Member Service | 玩家帳號：帳號、信箱、密碼雜湊、暱稱、頭像、角色、狀態 |
 
-欄位包含：
+#### `members` 資料表欄位說明
 
-- `id`
-- `service_name`
-- `status`
-- `checked_at`
+| 欄位 | 型別 | 說明 |
+| --- | --- | --- |
+| `id` | BIGINT AUTO_INCREMENT | 玩家主鍵（playerId） |
+| `username` | VARCHAR(50) UNIQUE | 登入帳號 |
+| `email` | VARCHAR(100) UNIQUE | 電子信箱 |
+| `password_hash` | VARCHAR(255) | BCrypt 雜湊密碼，不儲存明文 |
+| `nickname` | VARCHAR(50) | 顯示暱稱，可由玩家更新 |
+| `avatar` | TEXT NULL | 頭像：`https://` URL 或 `data:image/...;base64,...` |
+| `role` | ENUM('PLAYER','ADMIN') | 預設 PLAYER |
+| `status` | ENUM('ACTIVE','DISABLED') | 停權時設為 DISABLED |
+| `created_at` | DATETIME | 建立時間 |
+| `updated_at` | DATETIME ON UPDATE | 最後更新時間（自動維護） |
 
-這張表目前主要是確認資料庫初始化流程能正常跑，也可以讓未來服務寫入簡單的健康狀態紀錄。正式會員、錢包、遊戲、排行榜等資料表尚未建立。
+### PostgreSQL（`database/postgres/init.sql`）
+
+| 資料表 | 所屬服務 | 說明 |
+| --- | --- | --- |
+| `system_health_check` | 基礎建設 | 同 MySQL 版本，確認初始化流程正常 |
+
+> 錢包、遊戲、排行榜、後台等 PostgreSQL 資料表尚未建立，待各服務開發時補充。
 
 需要注意的是，Docker 的資料庫初始化 SQL 只會在 volume 第一次建立時執行。如果已經啟動過容器，後續修改 init SQL 不會自動重跑。若要重新初始化本機資料庫，需要先刪除 volume：
 
@@ -176,7 +191,8 @@ docker-compose up -d
 - Docker Compose 基礎服務。
 - MySQL、PostgreSQL、Redis、Kafka、Kafka UI。
 - Kafka topic 自動建立流程。
-- 資料庫基本初始化表。
+- 資料庫基本初始化表（`system_health_check`）。
+- MySQL `members` 資料表 schema（`database/mysql/init.sql`）。
 - `.env.example` 本機開發設定。
 
 尚未完成：
@@ -185,7 +201,7 @@ docker-compose up -d
 - Spring Boot 後端服務實作。
 - API Gateway 路由設定。
 - 會員、錢包、遊戲、排行榜、後台的 API。
-- 正式資料表 schema。
+- 錢包、遊戲、排行榜、後台等 PostgreSQL 資料表 schema。
 - 認證與授權。
 - 測試、CI/CD、正式環境部署設定。
 

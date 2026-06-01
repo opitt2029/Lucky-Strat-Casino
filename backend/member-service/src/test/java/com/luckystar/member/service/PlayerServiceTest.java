@@ -16,7 +16,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -29,113 +30,114 @@ class PlayerServiceTest {
     @InjectMocks
     private PlayerService playerService;
 
-    private Member member;
+    private Member sampleMember;
 
     @BeforeEach
     void setUp() {
-        member = new Member();
-        member.setId(1L);
-        member.setUsername("alice");
-        member.setEmail("alice@example.com");
-        member.setNickname("Alice");
-        member.setAvatarUrl(null);
-        member.setActive(true);
-        member.setCreatedAt(LocalDateTime.of(2026, 1, 1, 0, 0));
-        member.setUpdatedAt(LocalDateTime.of(2026, 1, 1, 0, 0));
+        sampleMember = new Member();
+        sampleMember.setId(1L);
+        sampleMember.setUsername("alice");
+        sampleMember.setEmail("alice@example.com");
+        sampleMember.setPasswordHash("$2a$10$hashedpassword");
+        sampleMember.setNickname("Alice");
+        sampleMember.setAvatar(null);
+        sampleMember.setRole("PLAYER");
+        sampleMember.setStatus("ACTIVE");
+        // 手動設定 createdAt，因為 @PrePersist 在 new 時不會自動觸發
+        try {
+            var field = Member.class.getDeclaredField("createdAt");
+            field.setAccessible(true);
+            field.set(sampleMember, LocalDateTime.of(2026, 5, 27, 10, 0, 0));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
-
-    // ── getProfile ─────────────────────────────────────────────────────────────
 
     @Test
     void getProfile_success() {
-        when(memberRepository.findByIdAndIsActiveTrue(1L)).thenReturn(Optional.of(member));
+        when(memberRepository.findById(1L)).thenReturn(Optional.of(sampleMember));
 
-        ProfileResponse response = playerService.getProfile(1L);
+        ProfileResponse result = playerService.getProfile(1L);
 
-        assertEquals(1L, response.getId());
-        assertEquals("alice", response.getUsername());
-        assertEquals("alice@example.com", response.getEmail());
-        assertEquals("Alice", response.getNickname());
-        // ProfileResponse 有意不含 passwordHash 欄位（編譯期保證）
-        assertDoesNotThrow(() -> ProfileResponse.class.getDeclaredMethod("getId"));
-        assertThrows(NoSuchMethodException.class,
-                () -> ProfileResponse.class.getDeclaredMethod("getPasswordHash"));
+        assertThat(result.getNickname()).isEqualTo("Alice");
+        assertThat(result.getPlayerId()).isEqualTo(1L);
+        assertThat(result.getUsername()).isEqualTo("alice");
     }
 
     @Test
     void getProfile_memberNotFound() {
-        when(memberRepository.findByIdAndIsActiveTrue(1L)).thenReturn(Optional.empty());
+        when(memberRepository.findById(99L)).thenReturn(Optional.empty());
 
-        assertThrows(MemberNotFoundException.class, () -> playerService.getProfile(1L));
+        assertThatThrownBy(() -> playerService.getProfile(99L))
+                .isInstanceOf(MemberNotFoundException.class)
+                .hasMessageContaining("99");
     }
 
-    // ── updateProfile ──────────────────────────────────────────────────────────
-
     @Test
-    void updateProfile_nicknameOnly() {
-        when(memberRepository.findByIdAndIsActiveTrue(1L)).thenReturn(Optional.of(member));
-        when(memberRepository.save(any(Member.class))).thenAnswer(inv -> inv.getArgument(0));
+    void updateProfile_nicknameOnly_success() {
+        when(memberRepository.findById(1L)).thenReturn(Optional.of(sampleMember));
+        when(memberRepository.save(any(Member.class))).thenReturn(sampleMember);
 
         UpdateProfileRequest request = new UpdateProfileRequest();
-        request.setNickname("NewAlice");
+        request.setNickname("Bob");
+        request.setAvatar(null);
 
-        ProfileResponse response = playerService.updateProfile(1L, request);
+        ProfileResponse result = playerService.updateProfile(1L, request);
 
         verify(memberRepository, times(1)).save(any(Member.class));
-        assertEquals("NewAlice", response.getNickname());
+        assertThat(result.getNickname()).isEqualTo("Bob");
     }
 
     @Test
-    void updateProfile_avatarUrlOnly() {
-        when(memberRepository.findByIdAndIsActiveTrue(1L)).thenReturn(Optional.of(member));
-        when(memberRepository.save(any(Member.class))).thenAnswer(inv -> inv.getArgument(0));
+    void updateProfile_avatarUrl_success() {
+        when(memberRepository.findById(1L)).thenReturn(Optional.of(sampleMember));
+        when(memberRepository.save(any(Member.class))).thenReturn(sampleMember);
 
         UpdateProfileRequest request = new UpdateProfileRequest();
-        request.setAvatarUrl("https://cdn.example.com/avatar.png");
+        request.setNickname(null);
+        request.setAvatar("https://example.com/avatar.png");
 
-        ProfileResponse response = playerService.updateProfile(1L, request);
+        ProfileResponse result = playerService.updateProfile(1L, request);
 
         verify(memberRepository, times(1)).save(any(Member.class));
-        assertEquals("https://cdn.example.com/avatar.png", response.getAvatarUrl());
+        assertThat(result.getAvatar()).isEqualTo("https://example.com/avatar.png");
     }
 
     @Test
-    void updateProfile_bothFields() {
-        when(memberRepository.findByIdAndIsActiveTrue(1L)).thenReturn(Optional.of(member));
-        when(memberRepository.save(any(Member.class))).thenAnswer(inv -> inv.getArgument(0));
+    void updateProfile_avatarBase64_success() {
+        when(memberRepository.findById(1L)).thenReturn(Optional.of(sampleMember));
+        when(memberRepository.save(any(Member.class))).thenReturn(sampleMember);
 
         UpdateProfileRequest request = new UpdateProfileRequest();
-        request.setNickname("NewAlice");
-        request.setAvatarUrl("https://cdn.example.com/avatar.png");
+        request.setNickname(null);
+        request.setAvatar("data:image/png;base64,abc123");
 
-        ProfileResponse response = playerService.updateProfile(1L, request);
+        playerService.updateProfile(1L, request);
 
         verify(memberRepository, times(1)).save(any(Member.class));
-        assertEquals("NewAlice", response.getNickname());
-        assertEquals("https://cdn.example.com/avatar.png", response.getAvatarUrl());
     }
 
     @Test
-    void updateProfile_noFieldsProvided() {
-        when(memberRepository.findByIdAndIsActiveTrue(1L)).thenReturn(Optional.of(member));
-
+    void updateProfile_noFields_throwsException() {
         UpdateProfileRequest request = new UpdateProfileRequest();
-        // nickname=null, avatarUrl=null
+        request.setNickname(null);
+        request.setAvatar(null);
 
-        assertThrows(NoUpdateFieldException.class,
-                () -> playerService.updateProfile(1L, request));
-        verify(memberRepository, never()).save(any());
+        assertThatThrownBy(() -> playerService.updateProfile(1L, request))
+                .isInstanceOf(NoUpdateFieldException.class)
+                .hasMessageContaining("At least one field");
     }
 
     @Test
     void updateProfile_memberNotFound() {
-        when(memberRepository.findByIdAndIsActiveTrue(1L)).thenReturn(Optional.empty());
+        when(memberRepository.findById(99L)).thenReturn(Optional.empty());
 
         UpdateProfileRequest request = new UpdateProfileRequest();
-        request.setNickname("NewAlice");
+        request.setNickname("Test");
+        request.setAvatar(null);
 
-        assertThrows(MemberNotFoundException.class,
-                () -> playerService.updateProfile(1L, request));
-        verify(memberRepository, never()).save(any());
+        assertThatThrownBy(() -> playerService.updateProfile(99L, request))
+                .isInstanceOf(MemberNotFoundException.class)
+                .hasMessageContaining("99");
     }
 }

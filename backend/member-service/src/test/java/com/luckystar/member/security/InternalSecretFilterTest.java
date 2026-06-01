@@ -7,7 +7,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -18,8 +17,8 @@ class InternalSecretFilterTest {
 
     @BeforeEach
     void setUp() {
-        filter = new InternalSecretFilter();
-        ReflectionTestUtils.setField(filter, "internalSecret", "test-secret");
+        // 建構子直接注入 secret（production 端為 @Value("${internal.secret}")）
+        filter = new InternalSecretFilter("test-secret");
     }
 
     // ── Test 1: 非 /internal/** 路徑直接放行 ──────────────────────────────────
