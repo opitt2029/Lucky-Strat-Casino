@@ -5,6 +5,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [feat] — 2026-06-01 — 鑽石兌換星幣 API（T-103）
+
+### Added
+- `DiamondExchangeRequest` / `DiamondExchangeResponse` DTO（`diamondAmount`、`idempotencyKey`）
+- `InsufficientDiamondException` → HTTP 422，整合至 `GlobalExceptionHandler`
+- `DiamondWalletService.debitDiamond()`：驗證餘額、樂觀鎖扣款、不足則拋 `InsufficientDiamondException`
+- `DiamondExchangeService.exchange()`：單一 PostgreSQL 交易內完成鑽石扣款 + 星幣入帳（1:20），含冪等預檢
+- `DiamondController.exchange()`：`POST /api/v1/wallet/diamond/exchange`，以 `X-User-Id` header 定位玩家
+
+### Changed
+- `CreditRequest.subType` 允許值新增 `DIAMOND_EXCHANGE`
+- `DiamondController` 建構子注入 `DiamondExchangeService`
+
+### Added（Schema）
+- `database/postgres/migration/V4__add_diamond_exchange_subtype.sql`：擴充 `wallet_transactions.sub_type` CHECK 約束
+
+**為什麼**：鑽石為玩家以點數卡兌換的硬通貨，本任務提供將鑽石換回星幣的流程。兩步驟（扣鑽石、入星幣）共用同一 PostgreSQL 交易，天然原子，無需跨資料源補償邏輯（對比 T-102）。
+
+**如何驗證**：`mvn -pl backend/wallet-service test`，135 tests passed。
+
+---
+
+## [feat] — 2026-06-01 — 點數卡序號兌換鑽石 API（T-102）
+
+### Added
+- `backend/wallet-service/.../mysql/entity/DiamondCard.java`（新增）：`diamond_cards`（MySQL 讀端）對應 entity（`cardCode` UNIQUE、`faceValue`、`isRedeemed`、`redeemedBy`、`redeemedAt`）。由 `mysqlEntityManagerFactory` 掃描。
+- `mysql/repository/DiamondCardRepository.java`（新增）：`findByCardCode`；防重複兌換核心 `markRedeemed`（條件式 `@Modifying` UPDATE，CAS：`WHERE card_code=? AND is_redeemed=false`，回傳 1=成功 / 0=不存在或已兌換）；補償用 `revertRedemption`。
+- `service/DiamondCardService.java`（新增，`@Transactional(mysqlTransactionManager)`）：`redeemCard`（SELECT 區分 404/422 後 CAS 標記、回面額）、`revertRedemption`（best-effort 補償，吞例外不外拋）。獨立成 bean 讓交易 proxy 生效。
+- `service/DiamondRedeemService.java`（新增）：跨資料源協調器。先 MySQL CAS 標記序號（防重複兌換關卡）、再 PostgreSQL 入帳鑽石；入帳失敗則補償回滾序號標記後原樣拋例外。**不引入 XA**（比照 `GiftService`）。
+- `controller/DiamondController.java`（新增）：`POST /api/v1/wallet/diamond/redeem`，playerId 取自 gateway 注入的 `X-User-Id`、序號走 body。與星幣 `WalletController` 分開讓鑽石邏輯獨立演進。
+- `dto/DiamondRedeemRequest.java`、`dto/DiamondRedeemResponse.java`（新增）：請求只帶 `cardCode`（`@NotBlank`/`@Size(max=50)`）；回應含 `redeemedDiamonds`（面額）與 `diamondBalance`（兌換後餘額）。
+- `exception/CardNotFoundException`(404)、`CardAlreadyRedeemedException`(422)、`DiamondWalletNotFoundException`(404)（新增），並在 `GlobalExceptionHandler` 加對應對映。
+- 測試（新增）：`DiamondCardServiceTest`(5)、`DiamondRedeemServiceTest`(3)、`DiamondControllerTest`(7)；`DiamondWalletServiceTest` 補 `creditDiamond` 2 案。
+
+### Changed
+- `service/DiamondWalletService.java`：新增 `creditDiamond(playerId, amount)`（`@Transactional(postgresTransactionManager)`），鑽石入帳、`@Version` 樂觀鎖防並發超帳，錢包不存在丟 `DiamondWalletNotFoundException`。
+
+### Why
+- 鑽石餘額在 PostgreSQL 寫端、序號在 MySQL 讀端（ADR-001），兌換天生跨資料源。沿用 `GiftService` 的取捨刻意不引入 XA，改以「先 CAS 標記序號（不可重複的關卡）→ 再入帳 → 失敗補償回滾」串接兩個獨立交易，永遠偏向「不重複入帳」的安全側。
+- 防重複兌換的真正關卡是 `is_redeemed` 上的條件式 UPDATE（CAS）而非 `card_code` UNIQUE（後者只防序號重複建立）：並發雙擊時 DB 列鎖 + 條件保證僅一方回傳列數為 1。
+- `CardAlreadyRedeemedException` 用 422 而非 409：「已兌換」是不可重試的業務狀態，與 409「並發衝突請重試」（樂觀鎖）語意不同。
+
+### How（驗證）
+- `mvn -pl backend/wallet-service test` → BUILD SUCCESS，Tests run: 105, Failures: 0, Errors: 0（H2，含 `contextLoads` 驗證新 entity/repository/CAS query 正確 wire-up）。
+
 ## [feat] — 2026-06-01 — 鑽石錢包初始化（開戶）（T-101）
 
 ### Added
@@ -41,7 +86,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### 如何驗證
 - 純 DDL 變更、無 Java 程式碼動到，既有測試不受影響。本機可比照 DEPLOY.md 以 `docker compose` 重建 `mysql`/`postgres`（init.sql 走 docker-entrypoint-initdb.d），確認兩表建立成功。
 - T-101 落地後將由 `mvn -pl backend/wallet-service test`（H2）覆蓋 `diamond_wallets` 對應 entity。
+
 ---
+
+## [feat] — 2026-06-01 — Kafka 消費失敗 Dead Letter Queue 處理（T-028）
+
+### Added
+- `database/postgres/migration/V3__create_dead_letter_messages.sql`（新增，原 V2 已被 T-100 佔用故改 V3）：`dead_letter_messages` 表（寫於 PostgreSQL 寫庫），欄位含 `dlt_topic`/`original_topic`/`message_key`/`payload`/`exception_class`/`failure_reason`/`stack_trace`/`status`/`retry_count`/`created_at`/`last_retried_at`，`chk_dlm_status` 限 FAILED/RETRIED/RESOLVED，並建 status/dlt_topic/created_at 索引。
+- `database/postgres/init.sql`（新增 dead_letter_messages 定義）：補齊一鍵建表所需的 schema 定義，與 V3 migration 保持一致。
+- `postgres/entity/DeadLetterMessage.java` + `postgres/repository/DeadLetterMessageRepository.java`（新增）：DLT 失敗訊息實體與查詢（`findByStatus`/`findByDltTopic`/`findByStatusAndDltTopic` 分頁）。
+- `kafka/DeadLetterListener.java`（新增）：消費 `wallet.credit.DLT`、`wallet.debit.DLT` 與 `wallet.credit.request.DLT`（入帳指令失敗），自 DLT header（`DLT_ORIGINAL_TOPIC`/`DLT_EXCEPTION_FQCN`/`DLT_EXCEPTION_MESSAGE`/`DLT_EXCEPTION_STACKTRACE`）取出原始 topic 與失敗原因落庫。**try/finally 保證永遠 ack、永不重拋**（避免 `.DLT.DLT` 連鎖或卡 partition），使用獨立 groupId `wallet-service-dlt-group`。
+- `config/KafkaConsumerConfig.java`（修改，append）：新增 `dltListenerContainerFactory` @Bean，**刻意不掛 `kafkaErrorHandler`**（DLT 是最後一站，不可再路由）。方法名唯一以符 Spring Boot 3.2+ `enforceUniqueMethods`。
+- `service/DeadLetterService.java`（新增）：`record`（落庫，內部吞例外不外拋、堆疊截斷 4000 字）、`query`（依 status/dltTopic 過濾分頁）、`retry`（把原 payload 重發回 `original_topic`，標記 RETRIED、累加 retry_count；下游 listener 冪等故重送安全）。
+- `controller/AdminDeadLetterController.java`（新增）：`GET /internal/wallet/dlt`（狀態/topic 過濾分頁查詢）、`POST /internal/wallet/dlt/{id}/retry`（手動重試）。掛在 `/internal/wallet/**` 沿用既有 `InternalSecretFilter`。
+- `dto/DeadLetterMessageResponse.java`、`dto/DeadLetterRetryResponse.java`（新增）。
+- `exception/DeadLetterNotFoundException.java`（→404）、`exception/IllegalDltStateException.java`（→409，已 RESOLVED 不可重試），並在 `GlobalExceptionHandler` 註冊。
+- 測試（新增）：`service/DeadLetterServiceTest.java`（9 案）、`kafka/DeadLetterListenerTest.java`（4 案，含 credit.request.DLT）。
+
+### Why
+- 完成 T-028（工作分配表規格：設定 `wallet.credit.DLT`/`wallet.debit.DLT`、消費失敗超過 3 次轉入 DLT、Admin 可查詢並手動重試、記錄失敗原因至 DB）。額外納入既有的 `wallet.credit.request.DLT`（入帳指令失敗）一併監控，避免指令類失敗無人看管。
+- DLT「重試 3 次後路由」基建在前置任務的 `KafkaConsumerConfig`（`DefaultErrorHandler` + `DeadLetterPublishingRecoverer`）已存在，且 DLT topic 已於 `kafka/kafka-init.sh` 建立；本任務只補「DLT consumer 落庫 + Admin 查詢/重試 API」，**未增刪 Kafka topic，故 `tests/infra/kafka.test.js` 無需更動**（AGENTS.md §2.7）。
+- 手動重試靠下游冪等保安全：`WalletReadSyncListener` 以 `existsById` 去重、`WalletService.credit/debit` 以 `idempotency_key` UNIQUE 去重（AGENTS.md §2.8），重發原 payload 不會重複入帳。
+
+### 如何驗證
+- `mvn -pl backend/wallet-service test`：**97 passed / 0 failed**（含 13 個新案；`contextLoads` 確認 H2 建表與三個 DLT consumer 掛載成功）。
+
+---
+
 ## [feat] — 2026-06-01 — 破產補助機制 API（T-027）
 
 ### Added
