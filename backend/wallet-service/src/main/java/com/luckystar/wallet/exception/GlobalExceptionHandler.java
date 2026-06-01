@@ -47,6 +47,13 @@ public class GlobalExceptionHandler {
         return ApiResponse.error(ex.getMessage());
     }
 
+    /** 鑽石餘額不足（T-103）→ 422。 */
+    @ExceptionHandler(InsufficientDiamondException.class)
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+    public ApiResponse<Void> handleInsufficientDiamond(InsufficientDiamondException ex) {
+        return ApiResponse.error(ex.getMessage());
+    }
+
     /** 點數卡序號不存在（T-102）→ 404。 */
     @ExceptionHandler(CardNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)

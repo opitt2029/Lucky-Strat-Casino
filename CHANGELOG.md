@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [feat] — 2026-06-01 — 鑽石兌換星幣 API（T-103）
+
+### Added
+- `DiamondExchangeRequest` / `DiamondExchangeResponse` DTO（`diamondAmount`、`idempotencyKey`）
+- `InsufficientDiamondException` → HTTP 422，整合至 `GlobalExceptionHandler`
+- `DiamondWalletService.debitDiamond()`：驗證餘額、樂觀鎖扣款、不足則拋 `InsufficientDiamondException`
+- `DiamondExchangeService.exchange()`：單一 PostgreSQL 交易內完成鑽石扣款 + 星幣入帳（1:20），含冪等預檢
+- `DiamondController.exchange()`：`POST /api/v1/wallet/diamond/exchange`，以 `X-User-Id` header 定位玩家
+
+### Changed
+- `CreditRequest.subType` 允許值新增 `DIAMOND_EXCHANGE`
+- `DiamondController` 建構子注入 `DiamondExchangeService`
+
+### Added（Schema）
+- `database/postgres/migration/V4__add_diamond_exchange_subtype.sql`：擴充 `wallet_transactions.sub_type` CHECK 約束
+
+**為什麼**：鑽石為玩家以點數卡兌換的硬通貨，本任務提供將鑽石換回星幣的流程。兩步驟（扣鑽石、入星幣）共用同一 PostgreSQL 交易，天然原子，無需跨資料源補償邏輯（對比 T-102）。
+
+**如何驗證**：`mvn -pl backend/wallet-service test`，135 tests passed。
+
+---
+
 ## [feat] — 2026-06-01 — 點數卡序號兌換鑽石 API（T-102）
 
 ### Added

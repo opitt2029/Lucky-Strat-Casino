@@ -1,6 +1,7 @@
 package com.luckystar.wallet.service;
 
 import com.luckystar.wallet.exception.DiamondWalletNotFoundException;
+import com.luckystar.wallet.exception.InsufficientDiamondException;
 import com.luckystar.wallet.postgres.entity.DiamondWallet;
 import com.luckystar.wallet.postgres.repository.DiamondWalletRepository;
 import lombok.RequiredArgsConstructor;
@@ -64,6 +65,32 @@ public class DiamondWalletService {
         wallet.setBalance(wallet.getBalance() + amount);
         diamondWalletRepository.save(wallet);
         log.info("Diamond credited: playerId={} amount={} balanceAfter={}",
+                playerId, amount, wallet.getBalance());
+        return wallet.getBalance();
+    }
+
+    /**
+     * 鑽石扣款（T-103）。鑽石換星幣流程的 PostgreSQL 寫端步驟：驗證餘額後以樂觀鎖扣除鑽石餘額，回傳扣除後餘額。
+     *
+     * <p>餘額不足丟 {@link InsufficientDiamondException} → 422。
+     * 並發樂觀鎖衝突丟 {@link org.springframework.orm.ObjectOptimisticLockingFailureException} → 409。
+     *
+     * @return 扣款後的鑽石餘額
+     * @throws DiamondWalletNotFoundException 鑽石錢包不存在 → 404
+     * @throws InsufficientDiamondException 鑽石餘額不足 → 422
+     */
+    @Transactional(transactionManager = "postgresTransactionManager")
+    public long debitDiamond(Long playerId, long amount) {
+        DiamondWallet wallet = diamondWalletRepository.findById(playerId)
+                .orElseThrow(() -> new DiamondWalletNotFoundException(
+                        "Diamond wallet not found for player: " + playerId));
+        if (wallet.getBalance() < amount) {
+            throw new InsufficientDiamondException(
+                    "Insufficient diamond balance: required=" + amount + " available=" + wallet.getBalance());
+        }
+        wallet.setBalance(wallet.getBalance() - amount);
+        diamondWalletRepository.save(wallet);
+        log.info("Diamond debited: playerId={} amount={} balanceAfter={}",
                 playerId, amount, wallet.getBalance());
         return wallet.getBalance();
     }
